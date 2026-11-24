@@ -75,7 +75,7 @@ public final class PageTranslationService {
         }
     }
 
-    public nonisolated func runTranslationSession(_ session: TranslationSession) async {
+    public nonisolated func runTranslationSession(_ session: sending TranslationSession) async {
         do {
             let extractedSegments = try await collectSegments()
             guard !extractedSegments.isEmpty else {

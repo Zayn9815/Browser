@@ -70,8 +70,8 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                 store.attachModelContext(modelContext)
                 downloadStore.attachModelContext(modelContext)
             }
-            .translationTask(store.translationService.configuration) { session in
-                await store.translationService.runTranslationSession(session)
+            .translationTask(store.translationService.configuration) { [translationService = store.translationService] session in
+                await translationService.runTranslationSession(session)
             }
             .sheet(
                 isPresented: Binding(
