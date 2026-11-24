@@ -1,0 +1,6 @@
+{
+  "module": "BrowserCore",
+  "lruLiveWebViewCap": 4,
+  "defaultSearchEngine": "duckDuckGo",
+  "readabilityVersion": "0.6.0"
+}

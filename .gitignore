@@ -1,0 +1,29 @@
+# Xcode & SwiftPM
+*.xcodeproj/
+*.xcworkspace/
+DerivedData/
+.build/
+.swiftpm/
+Package.resolved
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+build_ipa/
+
+# Build-time generated assets (regenerated deterministically in CI / local bootstrap)
+App/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+App/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024-Tinted.png
+App/Resources/AdBlockShards/*.json
+!App/Resources/AdBlockShards/.gitkeep
+Packages/PrismModules/Sources/BrowserCore/Resources/Readability.js
+
+# macOS / OS metadata
+.DS_Store
+Thumbs.db
+*.swp
+*~

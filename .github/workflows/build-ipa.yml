@@ -1,0 +1,129 @@
+name: Build Unsigned iPhone IPA (iOS 26 arm64)
+
+on:
+  push:
+    branches: [ main, "feat/**", "release/**" ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: build-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-iphone-ipa:
+    name: Build PrismDM Unsigned iPhone IPA
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+
+    steps:
+      - name: Checkout Repository & Submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Verify Xcode 26+ & iOS 26 SDK (Build Host Only — Target is iPhoneOS arm64)
+        run: |
+          set -euo pipefail
+          if [ ! -d "$DEVELOPER_DIR" ]; then
+            XCODE_26_APP=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -n 1)
+            echo "DEVELOPER_DIR=${XCODE_26_APP}/Contents/Developer" >> "$GITHUB_ENV"
+            export DEVELOPER_DIR="${XCODE_26_APP}/Contents/Developer"
+          fi
+          xcodebuild -version
+          SDK_VER=$(xcrun --sdk iphoneos --show-sdk-version)
+          echo "Detected iPhoneOS SDK: ${SDK_VER}"
+          MAJOR="${SDK_VER%%.*}"
+          if [ "$MAJOR" -lt 26 ]; then
+            echo "::error::Requires iPhoneOS SDK 26.0+, found ${SDK_VER}"
+            exit 1
+          fi
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Bootstrap SDMCore Submodule & Apply Browser Header Patch
+        run: bash scripts/bootstrap_submodules.sh
+
+      - name: Generate Opaque 1024x1024 sRGB AppIcon Assets
+        run: swift scripts/generate_app_icon.swift
+
+      - name: Fetch Mozilla Readability.js & Build Sharded EasyList + EasyPrivacy JSONs
+        run: |
+          bash scripts/fetch_readability.sh
+          swift scripts/build_adblock_rules.swift \
+            --output-dir App/Resources/AdBlockShards \
+            --max-rules-per-shard 125000
+
+      - name: Generate iPhone-Only Xcode Project
+        run: xcodegen generate --spec project.yml
+
+      - name: Cache SwiftPM SourcePackages
+        uses: actions/cache@v4
+        with:
+          path: .build/SourcePackages
+          key: spm-ios26-${{ hashFiles('project.yml', 'Packages/PrismModules/Package.swift', 'Vendor/SwiftyDownloadManager/Packages/SDMCore/Package.swift', 'Vendor/SwiftyDownloadManager/Packages/CurlBinary/Package.swift') }}
+          restore-keys: |
+            spm-ios26-
+
+      - name: Resolve Swift Package Dependencies
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project PrismDM.xcodeproj \
+            -scheme PrismDM \
+            -clonedSourcePackagesDirPath .build/SourcePackages
+
+      - name: Build Unsigned Release App for iPhone (iphoneos arm64 ONLY)
+        run: |
+          xcodebuild build \
+            -project PrismDM.xcodeproj \
+            -scheme PrismDM \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .build/DerivedData \
+            -clonedSourcePackagesDirPath .build/SourcePackages \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            IPHONEOS_DEPLOYMENT_TARGET=26.0 \
+            TARGETED_DEVICE_FAMILY=1 \
+            SUPPORTS_MACCATALYST=NO \
+            SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=NO
+
+      - name: Stage Payload, Normalize Embedded Frameworks & Verify Bundle Integrity
+        run: |
+          set -euo pipefail
+          rm -rf build_ipa
+          mkdir -p build_ipa/Payload
+          APP_PATH=".build/DerivedData/Build/Products/Release-iphoneos/PrismDM.app"
+          ditto "$APP_PATH" "build_ipa/Payload/PrismDM.app"
+
+          bash scripts/normalize_embedded_frameworks.sh "build_ipa/Payload/PrismDM.app"
+          bash scripts/verify_ipa_payload.sh "build_ipa/Payload/PrismDM.app"
+
+      - name: Package PrismDM-unsigned.ipa (Preserving Framework Symlinks)
+        run: |
+          cd build_ipa
+          zip -qry ../PrismDM-unsigned.ipa Payload
+          ls -lh ../PrismDM-unsigned.ipa
+
+      - name: Upload Unsigned iPhone IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrismDM-unsigned-iphoneos-arm64-ipa
+          path: PrismDM-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,173 @@
+diff --git a/Packages/SDMCore/Sources/SDMCore/Backends/Curl/EngineBridge.swift b/Packages/SDMCore/Sources/SDMCore/Backends/Curl/EngineBridge.swift
+index 3a9d472..648c447 100644
+--- a/Packages/SDMCore/Sources/SDMCore/Backends/Curl/EngineBridge.swift
++++ b/Packages/SDMCore/Sources/SDMCore/Backends/Curl/EngineBridge.swift
+@@ -97,10 +97,13 @@ final class EngineBridge: @unchecked Sendable {
+                             return Self.withStringView(request.requestContext?.netscapeCookies ?? "") { cookies in
+                                 Self.withStringView(request.requestContext?.userAgent ?? "") { userAgent in
+                                     Self.withStringView(request.requestContext?.referrerHeader(for: request.url) ?? "") { referrer in
+-                                        value.cookies = cookies
+-                                        value.user_agent = userAgent
+-                                        value.referrer = referrer
+-                                        return sdm_engine_enqueue(handle, &value, &commandID)
++                                        Self.withStringView(request.requestContext?.originHeader(for: request.url) ?? "") { origin in
++                                            value.cookies = cookies
++                                            value.user_agent = userAgent
++                                            value.referrer = referrer
++                                            value.origin = origin
++                                            return sdm_engine_enqueue(handle, &value, &commandID)
++                                        }
+                                     }
+                                 }
+                             }
+diff --git a/Packages/SDMCore/Sources/SDMCore/Backends/URLSession/URLSessionDownloadBackend.swift b/Packages/SDMCore/Sources/SDMCore/Backends/URLSession/URLSessionDownloadBackend.swift
+index 921fd21..cba6fa2 100644
+--- a/Packages/SDMCore/Sources/SDMCore/Backends/URLSession/URLSessionDownloadBackend.swift
++++ b/Packages/SDMCore/Sources/SDMCore/Backends/URLSession/URLSessionDownloadBackend.swift
+@@ -603,6 +603,9 @@ actor URLSessionDownloadBackend: DownloadEngineBackend {
+         request.setValue(current.cookieHeader(for: url), forHTTPHeaderField: "Cookie")
+         if let userAgent = context.userAgent { request.setValue(userAgent, forHTTPHeaderField: "User-Agent") }
+         request.setValue(context.referrerHeader(for: url), forHTTPHeaderField: "Referer")
++        if let origin = context.originHeader(for: url) {
++            request.setValue(origin, forHTTPHeaderField: "Origin")
++        }
+         return request
+     }
+ 
+diff --git a/Packages/SDMCore/Sources/SDMCore/Models/DownloadRequestContext.swift b/Packages/SDMCore/Sources/SDMCore/Models/DownloadRequestContext.swift
+index 9c1563f..5d2f93e 100644
+--- a/Packages/SDMCore/Sources/SDMCore/Models/DownloadRequestContext.swift
++++ b/Packages/SDMCore/Sources/SDMCore/Models/DownloadRequestContext.swift
+@@ -38,17 +38,33 @@ public struct DownloadCookie: Codable, Sendable, Equatable {
+     }
+ }
+ 
++/// Controls whether the HTTP `Referer` header is truncated to its origin or forwarded as the full URL.
++public enum DownloadReferrerPolicy: String, Codable, Sendable, Equatable {
++    case originOnly
++    case fullURL
++}
++
+ /// Transient authentication context. Codable is for private browser handoff only;
+ /// DownloadRequest deliberately excludes this value from its persisted form.
+ public struct DownloadRequestContext: Codable, Sendable, Equatable {
+     public let cookies: [DownloadCookie]
+     public let userAgent: String?
+     public let referrer: URL?
++    public let referrerPolicy: DownloadReferrerPolicy
++    public let origin: String?
+ 
+-    public init(cookies: [DownloadCookie] = [], userAgent: String? = nil, referrer: URL? = nil) {
++    public init(
++        cookies: [DownloadCookie] = [],
++        userAgent: String? = nil,
++        referrer: URL? = nil,
++        referrerPolicy: DownloadReferrerPolicy = .originOnly,
++        origin: String? = nil
++    ) {
+         self.cookies = cookies
+         self.userAgent = userAgent
+         self.referrer = referrer
++        self.referrerPolicy = referrerPolicy
++        self.origin = origin
+     }
+ 
+     func validate(for url: URL) throws {
+@@ -58,6 +74,7 @@ public struct DownloadRequestContext: Codable, Sendable, Equatable {
+         guard cookies.count <= 512,
+               (userAgent.map { safe($0) && $0.utf8.count <= 2048 } ?? true),
+               (referrer.map { safe($0.absoluteString) && ["http", "https"].contains($0.scheme?.lowercased() ?? "") && $0.user == nil && $0.password == nil } ?? true),
++              (origin.map { safe($0) && $0.utf8.count <= 1024 && ($0.lowercased().hasPrefix("http://") || $0.lowercased().hasPrefix("https://")) } ?? true),
+               cookies.allSatisfy({ cookie in
+                   !cookie.name.isEmpty && safe(cookie.name) && safe(cookie.value) &&
+                   !cookie.name.contains(where: { "()<>@,;:\\\"/[]?={} ".contains($0) }) &&
+@@ -77,14 +94,27 @@ public struct DownloadRequestContext: Codable, Sendable, Equatable {
+     }
+ 
+     func referrerHeader(for url: URL) -> String? {
+-        guard let referrer, !(referrer.scheme == "https" && url.scheme != "https"),
++        guard let referrer, !(referrer.scheme?.lowercased() == "https" && url.scheme?.lowercased() != "https"),
+               var components = URLComponents(url: referrer, resolvingAgainstBaseURL: false) else { return nil }
+-        components.path = "/"
+-        components.query = nil
+         components.fragment = nil
++        switch referrerPolicy {
++        case .originOnly:
++            components.path = "/"
++            components.query = nil
++        case .fullURL:
++            break
++        }
+         return components.url?.absoluteString
+     }
+ 
++    func originHeader(for url: URL) -> String? {
++        guard let origin, !origin.isEmpty else { return nil }
++        if origin.lowercased().hasPrefix("https://"), url.scheme?.lowercased() != "https" {
++            return nil
++        }
++        return origin
++    }
++
+     var netscapeCookies: String {
+         cookies.filter { $0.expirationDate.map { $0 > Date.now.timeIntervalSince1970 } ?? true }
+             .map(\.netscapeLine).joined(separator: "\n")
+diff --git a/Packages/SDMCore/Sources/SDMEngine/Engine.cpp b/Packages/SDMCore/Sources/SDMEngine/Engine.cpp
+index e1d5185..3b98168 100644
+--- a/Packages/SDMCore/Sources/SDMEngine/Engine.cpp
++++ b/Packages/SDMCore/Sources/SDMEngine/Engine.cpp
+@@ -964,6 +964,18 @@ private:
+             if (!task.request.referrer.empty()) {
+                 curl_easy_setopt(transfer->easy, CURLOPT_REFERER, task.request.referrer.c_str());
+             }
++            if (!task.request.origin.empty()) {
++                const auto origin_header = "Origin: " + task.request.origin;
++                transfer->request_headers = curl_slist_append(
++                    transfer->request_headers,
++                    origin_header.c_str()
++                );
++                curl_easy_setopt(
++                    transfer->easy,
++                    CURLOPT_HTTPHEADER,
++                    transfer->request_headers
++                );
++            }
+             if (lowercase(task.request.url.substr(0, 8)) == "https://") {
+                 curl_easy_setopt(transfer->easy, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+             }
+diff --git a/Packages/SDMCore/Sources/SDMEngine/include/SDMEngine.h b/Packages/SDMCore/Sources/SDMEngine/include/SDMEngine.h
+index 0429220..d4a54d7 100644
+--- a/Packages/SDMCore/Sources/SDMEngine/include/SDMEngine.h
++++ b/Packages/SDMCore/Sources/SDMEngine/include/SDMEngine.h
+@@ -52,6 +52,7 @@ struct DownloadRequest final {
+     std::string cookies;
+     std::string user_agent;
+     std::string referrer;
++    std::string origin;
+     bool has_request_context = false;
+     bool requires_request_context = false;
+     bool rejects_html = false;
+diff --git a/Packages/SDMCore/Sources/SDMEngineBridge/SDMEngineBridge.cpp b/Packages/SDMCore/Sources/SDMEngineBridge/SDMEngineBridge.cpp
+index 706f636..7ae4314 100644
+--- a/Packages/SDMCore/Sources/SDMEngineBridge/SDMEngineBridge.cpp
++++ b/Packages/SDMCore/Sources/SDMEngineBridge/SDMEngineBridge.cpp
+@@ -233,6 +233,7 @@ sdm_result_t sdm_engine_enqueue(
+                 .cookies = copy_string(request->cookies),
+                 .user_agent = copy_string(request->user_agent),
+                 .referrer = copy_string(request->referrer),
++                .origin = copy_string(request->origin),
+                 .has_request_context = request->has_request_context != 0,
+                 .requires_request_context = request->requires_request_context != 0,
+                 .rejects_html = request->rejects_html != 0,
+diff --git a/Packages/SDMCore/Sources/SDMEngineBridge/include/SDMEngineBridge.h b/Packages/SDMCore/Sources/SDMEngineBridge/include/SDMEngineBridge.h
+index 3015109..450f29a 100644
+--- a/Packages/SDMCore/Sources/SDMEngineBridge/include/SDMEngineBridge.h
++++ b/Packages/SDMCore/Sources/SDMEngineBridge/include/SDMEngineBridge.h
+@@ -79,6 +79,7 @@ typedef struct {
+     sdm_string_view_t cookies;
+     sdm_string_view_t user_agent;
+     sdm_string_view_t referrer;
++    sdm_string_view_t origin;
+     uint8_t has_request_context;
+     uint8_t requires_request_context;
+     uint8_t rejects_html;

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "handlerName": "prismMediaBridge",
+  "contentWorld": "page",
+  "maxPayloadBytes": 65536,
+  "events": [
+    "MEDIA_CANDIDATE_DETECTED",
+    "FULLSCREEN_INTERCEPTED",
+    "BLOB_SOURCE_ATTACHED",
+    "VIDEO_PLAYBACK_STATE",
+    "DRM_STREAM_DETECTED"
+  ]
+}

@@ -1,0 +1,3 @@
+[submodule "Vendor/SwiftyDownloadManager"]
+	path = Vendor/SwiftyDownloadManager
+	url = https://github.com/Kyle-Ye/SwiftyDownloadManager.git
