@@ -1,5 +1,6 @@
 import BrowserCore
 import ParallelDownloader
+import PrismCore
 import SwiftData
 import SwiftUI
 import VaultManager
@@ -11,6 +12,7 @@ public struct PrismDMApp: App {
 
     @State private var browserStore = BrowserStore()
     @State private var downloadStore = ParallelDownloadStore()
+    @State private var themeEngine = PrismThemeEngine.shared
     private let audioCenter = BackgroundAudioCenter.shared
     private let modelContainer: ModelContainer
 
@@ -23,6 +25,7 @@ public struct PrismDMApp: App {
     }
 
     public var body: some Scene {
+        let tokens = themeEngine.tokens
         WindowGroup {
             ZStack {
                 RootShellCoordinatorView(
@@ -34,15 +37,15 @@ public struct PrismDMApp: App {
 
                 if scenePhase != .active && browserStore.settings.privacyCurtainEnabled {
                     ZStack {
-                        PrismBrandPalette.obsidianBackground
+                        tokens.canvasBackground
                             .ignoresSafeArea()
                         VStack(spacing: 12) {
                             Image(systemName: "lock.shield.fill")
                                 .font(.system(size: 42, weight: .semibold))
-                                .foregroundStyle(PrismBrandPalette.crimsonAccent)
+                                .foregroundStyle(tokens.accent)
                             Text("PrismDM")
                                 .font(.title2.weight(.bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(tokens.primaryText)
                         }
                         .padding(28)
                         .glassEffect(.regular, in: .rect(cornerRadius: 24))
@@ -50,7 +53,8 @@ public struct PrismDMApp: App {
                     .transition(.opacity)
                 }
             }
-            .preferredColorScheme(.dark)
+            .tint(tokens.accent)
+            .preferredColorScheme(tokens.preferredColorScheme)
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .background {
                     browserStore.handleSceneBackgrounded(isBackgroundAudioActive: audioCenter.isPlaying)

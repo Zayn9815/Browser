@@ -43,3 +43,12 @@ PrismDM is an independent iPhone-only browser and download manager. It is not af
   - EasyPrivacy: https://easylist.to/easylist/easyprivacy.txt
 - **License**: Dual-licensed under GNU General Public License v3.0 (`GPL-3.0`) and Creative Commons Attribution-ShareAlike 3.0 Unported (`CC-BY-SA-3.0`).
 - **Usage**: Fetched, converted to Apple WebKit Content Blocker JSON, and sharded at build time for offline `WKContentRuleListStore` execution.
+
+---
+
+## 6. KSCrash (`kstenerud/KSCrash` 2.6.x)
+- **Upstream Repository**: https://github.com/kstenerud/KSCrash
+- **Scope Used**: `Recording` and `Filters` modules running strictly in 100% local offline mode (zero remote telemetry/uploads) for Mach, POSIX signal, C++/ObjC exception, watchdog, and termination diagnostics.
+- **License**: MIT License
+- **Copyright**: Copyright (c) 2012 Karl Stenerud.
+

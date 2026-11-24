@@ -1,4 +1,5 @@
 import ParallelDownloader
+import PrismCore
 import PrismPlayer
 import UIKit
 
@@ -28,6 +29,15 @@ public final class PrismAppDelegate: NSObject, UIApplicationDelegate {
                 OrientationLockController.shared.restoreDefaultOrientations()
             }
         }
+    }
+
+    public func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        PrismCrashManager.shared.install()
+        PrismLogCenter.record(.info, category: .app, "PrismDM launched (iOS 26 arm64).")
+        return true
     }
 
     public func application(

@@ -1,9 +1,11 @@
+import PrismCore
 import SwiftUI
 
+@MainActor
 public enum PrismBrandPalette {
-    public static let obsidianBackground = Color(red: 10.0 / 255.0, green: 10.0 / 255.0, blue: 15.0 / 255.0)
-    public static let obsidianElevated = Color(red: 18.0 / 255.0, green: 18.0 / 255.0, blue: 28.0 / 255.0)
-    public static let crimsonAccent = Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0)
+    public static var obsidianBackground: Color { PrismThemeEngine.shared.tokens.canvasBackground }
+    public static var obsidianElevated: Color { PrismThemeEngine.shared.tokens.elevatedSurface }
+    public static var crimsonAccent: Color { PrismThemeEngine.shared.tokens.accent }
 }
 
 public extension View {

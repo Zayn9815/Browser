@@ -46,6 +46,12 @@ if command -v assetutil >/dev/null 2>&1; then
     echo "[verify] Verified AppIcon present inside Assets.car ($(wc -c < "${ASSETS_CAR}" | tr -d ' ') bytes)."
 fi
 
+for ALT_ICON in AppIcon-Duo AppIcon-Glacier AppIcon-ObsidianMint AppIcon-Sahara AppIcon-Classic AppIcon-Frost; do
+    "${PLIST_BUDDY}" -c "Print :CFBundleIcons:CFBundleAlternateIcons:${ALT_ICON}" "${APP_PLIST}" >/dev/null 2>&1 \
+        || fail "Alternate app icon missing from CFBundleAlternateIcons: ${ALT_ICON}"
+done
+echo "[verify] Verified all 6 alternate PrismDM app icons in CFBundleAlternateIcons."
+
 # 4. Verify bundled SDMCore CA certificate bundle (cacert.pem)
 CACERT_PATH="$(find "${APP_BUNDLE}" -name 'cacert.pem' -print -quit)"
 [ -n "${CACERT_PATH}" ] && [ -s "${CACERT_PATH}" ] || fail "Bundled SDMCore cacert.pem is missing"

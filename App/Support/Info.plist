@@ -63,6 +63,8 @@
 	<string>PrismDM uses Face ID to unlock your Private Incognito Tabs and Private Vault.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>PrismDM uses the camera strictly to scan QR code URLs in the Omnibox.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>PrismDM accesses your Photo Library to import photos and videos into your Vault or Private Vault and optionally remove imported originals.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>PrismDM saves downloaded videos and images to your Photo Library when requested.</string>
 	<key>CFBundleURLTypes</key>

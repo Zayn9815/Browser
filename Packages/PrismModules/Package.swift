@@ -8,6 +8,7 @@ let package = Package(
         .iOS(.v26),
     ],
     products: [
+        .library(name: "PrismCore", targets: ["PrismCore"]),
         .library(name: "VaultManager", targets: ["VaultManager"]),
         .library(name: "AdBlockEngine", targets: ["AdBlockEngine"]),
         .library(name: "ParallelDownloader", targets: ["ParallelDownloader"]),
@@ -19,23 +20,36 @@ let package = Package(
         .package(path: "../../Vendor/SwiftyDownloadManager/Packages/SDMCore"),
         .package(url: "https://github.com/kingslay/FFmpegKit.git", exact: "9.0.2"),
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.21"),
+        .package(url: "https://github.com/kstenerud/KSCrash.git", from: "2.6.1"),
     ],
     targets: [
         .target(
+            name: "PrismCore",
+            dependencies: [
+                .product(name: "Recording", package: "KSCrash"),
+                .product(name: "Filters", package: "KSCrash"),
+            ]
+        ),
+        .target(
             name: "VaultManager",
             dependencies: [
+                "PrismCore",
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
             linkerSettings: [
                 .linkedFramework("LocalAuthentication"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("MediaPlayer"),
+                .linkedFramework("Photos"),
+                .linkedFramework("PhotosUI"),
                 .linkedFramework("Security"),
             ]
         ),
         .target(
             name: "AdBlockEngine",
-            dependencies: [],
+            dependencies: [
+                "PrismCore",
+            ],
             resources: [
                 .process("Resources"),
             ],
@@ -46,6 +60,7 @@ let package = Package(
         .target(
             name: "ParallelDownloader",
             dependencies: [
+                "PrismCore",
                 "VaultManager",
                 .product(name: "SDMCore", package: "SDMCore"),
                 .product(name: "FFmpegKit", package: "FFmpegKit"),
@@ -65,6 +80,7 @@ let package = Package(
         .target(
             name: "PrismPlayer",
             dependencies: [
+                "PrismCore",
                 "VaultManager",
                 "ParallelDownloader",
                 .product(name: "FFmpegKit", package: "FFmpegKit"),
@@ -84,6 +100,7 @@ let package = Package(
         .target(
             name: "MediaInterceptor",
             dependencies: [
+                "PrismCore",
                 "ParallelDownloader",
                 "PrismPlayer",
             ],
@@ -97,6 +114,7 @@ let package = Package(
         .target(
             name: "BrowserCore",
             dependencies: [
+                "PrismCore",
                 "VaultManager",
                 "AdBlockEngine",
                 "ParallelDownloader",
@@ -111,11 +129,14 @@ let package = Package(
                 .linkedFramework("WebKit"),
                 .linkedFramework("VisionKit"),
                 .linkedFramework("AVFoundation"),
+                .linkedFramework("PhotosUI"),
+                .linkedFramework("Translation"),
             ]
         ),
         .testTarget(
             name: "PrismModulesTests",
             dependencies: [
+                "PrismCore",
                 "VaultManager",
                 "AdBlockEngine",
                 "ParallelDownloader",
