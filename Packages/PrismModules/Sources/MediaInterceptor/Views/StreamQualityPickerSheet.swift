@@ -1,8 +1,10 @@
+import PrismCore
 import PrismPlayer
 import SwiftUI
 
 public struct StreamQualityPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var themeEngine = PrismThemeEngine.shared
 
     private let item: InterceptedMediaItem
     private let onSelectDownload: (InterceptedMediaItem, HLSStreamVariant?) -> Void
@@ -32,6 +34,7 @@ public struct StreamQualityPickerSheet: View {
     }
 
     public var body: some View {
+        let tokens = themeEngine.tokens
         NavigationStack {
             List {
                 Section("Detected Stream") {
@@ -44,9 +47,10 @@ public struct StreamQualityPickerSheet: View {
                             .foregroundStyle(.secondary)
                         Text("Format: \(item.containerHint.rawValue.uppercased())")
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                            .foregroundStyle(tokens.accent)
                     }
                 }
+                .prismGlassListRow()
 
                 if item.containerHint == .m3u8 {
                     Section("Available Quality Variants") {
@@ -80,13 +84,14 @@ public struct StreamQualityPickerSheet: View {
                                         Spacer()
                                         if selectedVariantID == variant.id {
                                             Image(systemName: "checkmark.circle.fill")
-                                                .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                                                .foregroundStyle(tokens.accent)
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                    .prismGlassListRow()
                 }
 
                 Section {
@@ -99,11 +104,12 @@ public struct StreamQualityPickerSheet: View {
                             systemImage: "arrow.down.circle.fill"
                         )
                         .font(.headline)
+                        .foregroundStyle(tokens.accentText)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                     }
                     .buttonStyle(.glassProminent)
-                    .tint(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                    .tint(tokens.accent)
 
                     Button {
                         onSelectPlay(item, selectedVariant)
@@ -116,7 +122,10 @@ public struct StreamQualityPickerSheet: View {
                     }
                     .buttonStyle(.glass)
                 }
+                .listRowBackground(Color.clear)
             }
+            .listStyle(.insetGrouped)
+            .prismThemedScrollChrome()
             .navigationTitle("Stream Quality")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -140,6 +149,7 @@ public struct StreamQualityPickerSheet: View {
                 }
             }
         }
+        .prismThemedSheetChrome()
         .presentationDetents([.medium, .large])
     }
 }

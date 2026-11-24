@@ -47,23 +47,29 @@ public struct DiagnosticsLogsView: View {
 
     public var body: some View {
         let tokens = themeEngine.tokens
-        VStack(spacing: 0) {
-            Picker("Diagnostics Section", selection: $selectedSegment) {
-                Text("All Logs (\(allEntries.count))").tag(0)
-                Text("Errors (\(warningErrorCount))").tag(1)
-                Text("Crashes (\(crashManager.crashCount))").tag(2)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+        ZStack {
+            PrismThemeBackdropView()
 
-            if selectedSegment < 2 {
-                categoryFilterBar(tokens: tokens)
-                logsListView(tokens: tokens)
-            } else {
-                crashReportsListView(tokens: tokens)
+            VStack(spacing: 0) {
+                Picker("Diagnostics Section", selection: $selectedSegment) {
+                    Text("All Logs (\(allEntries.count))").tag(0)
+                    Text("Errors (\(warningErrorCount))").tag(1)
+                    Text("Crashes (\(crashManager.crashCount))").tag(2)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+
+                if selectedSegment < 2 {
+                    categoryFilterBar(tokens: tokens)
+                    logsListView(tokens: tokens)
+                } else {
+                    crashReportsListView(tokens: tokens)
+                }
             }
         }
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .preferredColorScheme(tokens.preferredColorScheme)
         .navigationTitle("Diagnostics & Logs")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, prompt: "Filter logs by message or module")
@@ -115,11 +121,13 @@ public struct DiagnosticsLogsView: View {
                         ScrollView([.vertical, .horizontal]) {
                             Text(loadedCrashReportText)
                                 .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(tokens.primaryText)
                                 .textSelection(.enabled)
                                 .padding(14)
                         }
                     }
                 }
+                .prismThemedScrollChrome()
                 .navigationTitle(summary.exceptionOrSignal)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -143,6 +151,7 @@ public struct DiagnosticsLogsView: View {
                     }
                 }
             }
+            .prismThemedSheetChrome()
         }
         .tint(tokens.accent)
     }
@@ -249,6 +258,7 @@ public struct DiagnosticsLogsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
         .refreshable {
             await refreshDiagnostics()
         }
@@ -262,6 +272,7 @@ public struct DiagnosticsLogsView: View {
                     systemImage: "checkmark.seal.fill",
                     description: Text("KSCrash runs 100% locally offline. Any unexpected termination is captured here for 1-tap Antigravity inspection.")
                 )
+                .listRowBackground(Color.clear)
             } else {
                 Section("Captured Local Crash Reports") {
                     ForEach(crashManager.crashSummaries) { summary in
@@ -308,9 +319,11 @@ public struct DiagnosticsLogsView: View {
                         }
                     }
                 }
+                .prismGlassListRow()
             }
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
         .refreshable {
             crashManager.refreshSummaries()
         }

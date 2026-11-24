@@ -1,3 +1,4 @@
+import PrismCore
 import SwiftUI
 
 public struct PlayerLiquidGlassHUD: View {
@@ -462,7 +463,8 @@ public struct PlayerLiquidGlassHUD: View {
     }
 
     private var speedPickerSheet: some View {
-        NavigationStack {
+        let tokens = PrismThemeEngine.shared.tokens
+        return NavigationStack {
             List {
                 ForEach(PlayerPlaybackSpeed.allCases) { speed in
                     Button {
@@ -475,20 +477,25 @@ public struct PlayerLiquidGlassHUD: View {
                             Spacer()
                             if abs(playbackRate - speed.rawValue) < 0.01 {
                                 Image(systemName: "checkmark")
-                                    .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                                    .foregroundStyle(tokens.accent)
                             }
                         }
                     }
                 }
+                .prismGlassListRow()
             }
+            .listStyle(.insetGrouped)
+            .prismThemedScrollChrome()
             .navigationTitle("Playback Speed")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .prismThemedSheetChrome()
         .presentationDetents([.medium])
     }
 
     private var tracksPickerSheet: some View {
-        NavigationStack {
+        let tokens = PrismThemeEngine.shared.tokens
+        return NavigationStack {
             List {
                 if !audioTracks.isEmpty {
                     Section("Audio Tracks") {
@@ -503,12 +510,13 @@ public struct PlayerLiquidGlassHUD: View {
                                     Spacer()
                                     if selectedAudioTrackID == track.id {
                                         Image(systemName: "checkmark")
-                                            .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                                            .foregroundStyle(tokens.accent)
                                     }
                                 }
                             }
                         }
                     }
+                    .prismGlassListRow()
                 }
 
                 Section("Subtitles") {
@@ -522,7 +530,7 @@ public struct PlayerLiquidGlassHUD: View {
                             Spacer()
                             if selectedSubtitleTrackID == nil {
                                 Image(systemName: "checkmark")
-                                    .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                                    .foregroundStyle(tokens.accent)
                             }
                         }
                     }
@@ -538,16 +546,20 @@ public struct PlayerLiquidGlassHUD: View {
                                 Spacer()
                                 if selectedSubtitleTrackID == track.id {
                                     Image(systemName: "checkmark")
-                                        .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                                        .foregroundStyle(tokens.accent)
                                 }
                             }
                         }
                     }
                 }
+                .prismGlassListRow()
             }
+            .listStyle(.insetGrouped)
+            .prismThemedScrollChrome()
             .navigationTitle("Audio & Subtitles")
             .navigationBarTitleDisplayMode(.inline)
         }
+        .prismThemedSheetChrome()
         .presentationDetents([.medium, .large])
     }
 

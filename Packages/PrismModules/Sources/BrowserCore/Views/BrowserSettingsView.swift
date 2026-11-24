@@ -152,6 +152,8 @@ public struct BrowserSettingsView: View {
                     }
                 }
             }
+            .listStyle(.insetGrouped)
+            .prismThemedScrollChrome()
             .contentMargins(.bottom, 100, for: .scrollContent)
             .navigationTitle("Settings")
             .toolbar {
@@ -378,6 +380,8 @@ private struct GeneralSettingsView: View {
                 )
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("General & Appearance")
         .navigationBarTitleDisplayMode(.inline)
@@ -468,6 +472,8 @@ private struct ShieldSettingsView: View {
                 Text("Offline WebKit Content Blocker lists run natively with zero remote filter requests. HTTPS-Only automatically falls back to HTTP if a site does not support TLS.")
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Shield & Protection")
         .navigationBarTitleDisplayMode(.inline)
@@ -509,6 +515,8 @@ private struct MediaSettingsView: View {
                 Text("When Auto-Lock Landscape in Fullscreen is off, PrismPlayer follows your phone's orientation and respects iOS Portrait Orientation Lock. When enabled, PrismDM detects playable HLS/MP4 streams across frames and upgrades fullscreen playback to the Liquid Glass PrismPlayer.")
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Media & PrismPlayer")
         .navigationBarTitleDisplayMode(.inline)
@@ -551,6 +559,8 @@ private struct TabsPerformanceSettingsView: View {
                 Text("Inactive tabs beyond the pool limit are hibernated to disk snapshots to keep iPhone RAM usage low.")
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Tabs & Performance")
         .navigationBarTitleDisplayMode(.inline)
@@ -616,6 +626,8 @@ private struct DownloadsSettingsView: View {
                 Text("PrismDM Multi-Thread uses parallel byte-range chunks for direct files (with Range:0-0 probing) and concurrent N-worker segment downloading for HLS (.m3u8) streams.")
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Downloads & Engine")
         .navigationBarTitleDisplayMode(.inline)
@@ -671,6 +683,8 @@ private struct PrivacySecuritySettingsView: View {
                 LabeledContent("Offline Filter Shards", value: AdBlockManifestLoader.summary())
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Privacy, Security & Data")
         .navigationBarTitleDisplayMode(.inline)
@@ -706,6 +720,8 @@ private struct AboutAndLicensesSettingsView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("About & Licenses")
         .navigationBarTitleDisplayMode(.inline)
@@ -756,6 +772,8 @@ private struct AllowlistedSitesView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Allowlisted Sites")
         .navigationBarTitleDisplayMode(.inline)
@@ -822,6 +840,8 @@ private struct ClearBrowsingDataView: View {
                 .disabled(!hasAnySelection || isClearing)
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Clear Browsing Data")
         .navigationBarTitleDisplayMode(.inline)
@@ -936,6 +956,8 @@ private struct VaultPINSetupView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Private Vault PIN")
         .navigationBarTitleDisplayMode(.inline)
@@ -997,6 +1019,8 @@ private struct OpenSourceLicensesView: View {
                 .padding(.vertical, 4)
             }
         }
+        .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Open Source Licenses")
         .navigationBarTitleDisplayMode(.inline)

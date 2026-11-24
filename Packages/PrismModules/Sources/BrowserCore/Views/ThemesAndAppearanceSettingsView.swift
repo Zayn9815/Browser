@@ -67,6 +67,7 @@ public struct ThemesAndAppearanceSettingsView: View {
             } footer: {
                 Text("Themes apply immediately across the Start Page, Liquid Glass chrome, Downloads, Vault, and Settings with WCAG AA+ text contrast.")
             }
+            .prismGlassListRow()
 
             // 2. Search Bar Position
             Section {
@@ -87,6 +88,7 @@ public struct ThemesAndAppearanceSettingsView: View {
             } footer: {
                 Text("Bottom keeps the search bar within one-hand thumb reach above the Home Indicator. Swipe left or right on the address bar to switch tabs.")
             }
+            .prismGlassListRow()
 
             // 3. Start Page Wallpaper
             Section {
@@ -136,6 +138,7 @@ public struct ThemesAndAppearanceSettingsView: View {
             } footer: {
                 Text("Custom wallpapers are downscaled once and stored on disk with zero idle GPU cost.")
             }
+            .prismGlassListRow()
 
             // 4. Alternate App Icons (exact PrismDM prism geometry)
             Section {
@@ -205,11 +208,12 @@ public struct ThemesAndAppearanceSettingsView: View {
             } footer: {
                 Text("All 7 alternate icons preserve the PrismDM geometric prism logo in matching theme palettes.")
             }
+            .prismGlassListRow()
         }
         .listStyle(.insetGrouped)
+        .prismThemedScrollChrome()
         .navigationTitle("Themes & Appearance")
         .navigationBarTitleDisplayMode(.inline)
-        .tint(tokens.accent)
     }
 
     private func dualSwatchDots(primary: Color, secondary: Color, stroke: Color) -> some View {

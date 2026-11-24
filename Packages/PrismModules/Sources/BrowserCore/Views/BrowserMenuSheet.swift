@@ -37,7 +37,7 @@ public struct BrowserMenuSheet: View {
         let tokens = themeEngine.tokens
         NavigationStack {
             List {
-                // 1. Top Quick Navigation Grid (replaces removed bottom 4-tab bar)
+                // 1. Top Quick Navigation Grid (Downloads, Vault, Library, Settings, New Tab, Private, Scan QR, Tabs)
                 Section {
                     LazyVGrid(columns: navGridColumns, spacing: 12) {
                         navTile(
@@ -118,16 +118,61 @@ public struct BrowserMenuSheet: View {
                     .padding(.vertical, 6)
                 }
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                .listRowBackground(Color.clear)
 
-                // 2. Page Controls & Tools (complete mirror + Translate Page)
-                Section("Page Controls & Tools") {
+                // 2. Navigation, Shield & yt-dlp Media Extraction
+                Section("Quick Tools") {
+                    if store.activeTab.canGoForward {
+                        Button {
+                            dismiss()
+                            store.goForward()
+                        } label: {
+                            Label("Go Forward", systemImage: "chevron.right")
+                        }
+                    }
+
+                    Button {
+                        dismiss()
+                        store.isSiteMenuPresented = true
+                    } label: {
+                        HStack {
+                            Label("Shield & Site Controls", systemImage: "shield.lefthalf.filled")
+                            Spacer()
+                            if store.activeTab.blockedTrackerCount > 0 {
+                                Text("\(store.activeTab.blockedTrackerCount) blocked")
+                                    .font(.caption.weight(.semibold).monospacedDigit())
+                                    .foregroundStyle(tokens.accent)
+                            }
+                        }
+                    }
+
+                    if let pageURL = store.activeTab.currentURL {
+                        Button {
+                            dismiss()
+                            let ua = store.webViewPool.existingWebView(for: store.activeTabID)?.customUserAgent
+                            let ctx = BrowserSessionContext(
+                                userAgent: ua,
+                                pageReferer: pageURL.absoluteString,
+                                isIncognito: store.activeTab.isIncognito
+                            )
+                            store.onOpenYTDLPPicker?(pageURL, ctx)
+                        } label: {
+                            Label("Download with yt-dlp", systemImage: "arrow.down.to.line.circle.fill")
+                                .foregroundStyle(tokens.accent)
+                        }
+                    }
+
                     Button {
                         dismiss()
                         store.translateActivePage()
                     } label: {
                         Label("Translate Page", systemImage: "translate")
                     }
+                }
+                .prismGlassListRow()
 
+                // 3. Page Controls & Reading
+                Section("Page Controls & Reading") {
                     Stepper(
                         value: Binding(
                             get: { store.settings.defaultPageZoom },
@@ -140,7 +185,7 @@ public struct BrowserMenuSheet: View {
                             Label("Page Zoom", systemImage: "textformat.size")
                             Spacer()
                             Text("\(Int((store.settings.defaultPageZoom * 100).rounded()))%")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(tokens.secondaryText)
                                 .monospacedDigit()
                         }
                     }
@@ -185,8 +230,9 @@ public struct BrowserMenuSheet: View {
                         Label("Find in Page", systemImage: "magnifyingglass")
                     }
                 }
+                .prismGlassListRow()
 
-                // 3. Bookmarks, Offline Export & Share
+                // 4. Bookmarks, Offline Export & Share
                 Section("Bookmarks & Export") {
                     Button {
                         store.bookmarkActivePage()
@@ -208,8 +254,10 @@ public struct BrowserMenuSheet: View {
                         }
                     }
                 }
+                .prismGlassListRow()
             }
             .listStyle(.insetGrouped)
+            .prismThemedScrollChrome()
             .navigationTitle("Menu")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -219,7 +267,7 @@ public struct BrowserMenuSheet: View {
                 }
             }
         }
-        .tint(tokens.accent)
+        .prismThemedSheetChrome()
         .presentationDetents([.large, .medium])
         .presentationDragIndicator(.visible)
     }
@@ -238,12 +286,8 @@ public struct BrowserMenuSheet: View {
                     Image(systemName: icon)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(tintOverride ?? tokens.accent)
-                        .frame(width: 48, height: 48)
-                        .background(tokens.cardSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(tokens.hairline, lineWidth: 1)
-                        )
+                        .frame(width: 50, height: 50)
+                        .prismGlassCard(cornerRadius: 15)
 
                     if badgeCount > 0 {
                         Text("\(badgeCount)")

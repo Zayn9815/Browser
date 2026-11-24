@@ -95,7 +95,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                 )
             ) {
                 downloadsTabContent()
-                    .tint(tokens.accent)
+                    .prismThemedSheetChrome()
             }
             .sheet(
                 isPresented: Binding(
@@ -113,7 +113,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                     onPlayMediaFile: onPlayVaultMedia,
                     onDismiss: { selectedTab = .browser }
                 )
-                .tint(tokens.accent)
+                .prismThemedSheetChrome()
             }
             .sheet(
                 isPresented: Binding(
@@ -130,7 +130,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                     downloadStore: downloadStore,
                     onDismiss: { selectedTab = .browser }
                 )
-                .tint(tokens.accent)
+                .prismThemedSheetChrome()
             }
             .sheet(isPresented: $store.isBrowserMenuPresented) {
                 BrowserMenuSheet(
@@ -141,6 +141,9 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                     onOpenSettings: { selectedTab = .settings }
                 )
             }
+            .sheet(isPresented: $store.isTabHistoryPresented) {
+                tabHistorySheet(tokens: tokens)
+            }
             .fullScreenCover(isPresented: $store.isTabGridPresented) {
                 TabGridSwitcherView(store: store)
             }
@@ -148,6 +151,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                 QRCodeScannerSheet { scannedPayload in
                     store.navigate(toInput: scannedPayload)
                 }
+                .prismThemedSheetChrome()
             }
             .sheet(isPresented: $store.isSiteMenuPresented) {
                 ShieldAndSiteMenuSheet(store: store)
@@ -165,6 +169,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                         store.showToast(message)
                     }
                 )
+                .prismThemedSheetChrome()
             }
             .sheet(item: $store.activePopupSession) { session in
                 PopupWebViewSheet(session: session) {
@@ -173,9 +178,11 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                         await store.googleAccount.refreshSessionStatus()
                     }
                 }
+                .prismThemedSheetChrome()
             }
             .sheet(item: $store.activeReaderArticle) { article in
                 ReaderModeSheet(article: article)
+                    .prismThemedSheetChrome()
             }
             .modifier(BrowserDialogAlertModifier(
                 store: store,
@@ -187,8 +194,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
 
     private func browserViewport(tokens: PrismThemeTokens) -> some View {
         ZStack {
-            tokens.canvasBackground
-                .ignoresSafeArea()
+            PrismThemeBackdropView()
 
             // Primary content canvas: Private Lock, Start Page, or WebView
             if store.activeTab.isIncognito && !store.authService.isPrivateUnlocked {
@@ -202,7 +208,8 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                     store: store,
                     bookmarks: bookmarks,
                     onOpenDownloads: { selectedTab = .downloads },
-                    onOpenVault: { selectedTab = .vault }
+                    onOpenVault: { selectedTab = .vault },
+                    onOpenSettings: { selectedTab = .settings }
                 )
             } else {
                 PrismWebViewRepresentable(
@@ -230,8 +237,12 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                 // Top Omnibox mode
                 if isTopBarMode {
                     if !store.isChromeMinimized || store.isOmniboxExpanded || store.activeTab.urlString.isEmpty {
-                        FloatingOmniboxBar(store: store, isTopMode: true)
-                            .transition(.move(edge: .top).combined(with: .opacity))
+                        FloatingOmniboxBar(
+                            store: store,
+                            isTopMode: true,
+                            activeDownloadCount: downloadStore.activeCount
+                        )
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     } else {
                         collapsedRevealPill(tokens: tokens)
                             .padding(.top, 4)
@@ -254,7 +265,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                         .foregroundStyle(tokens.primaryText)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .glassEffect(.regular, in: .capsule)
+                        .prismGlassPill()
                         .padding(.top, isTopBarMode ? 0 : 6)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -286,8 +297,12 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                 // Bottom Omnibox mode (default) with ergonomic Home-bar cushion (+12 pt above safe area)
                 if !isTopBarMode {
                     if !store.isChromeMinimized || store.isOmniboxExpanded || store.activeTab.urlString.isEmpty {
-                        FloatingOmniboxBar(store: store, isTopMode: false)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        FloatingOmniboxBar(
+                            store: store,
+                            isTopMode: false,
+                            activeDownloadCount: downloadStore.activeCount
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                     } else {
                         collapsedRevealPill(tokens: tokens)
                             .padding(.bottom, 12)
@@ -296,6 +311,76 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                 }
             }
         }
+    }
+
+    private func tabHistorySheet(tokens: PrismThemeTokens) -> some View {
+        let lists = store.backForwardHistoryItems()
+        return NavigationStack {
+            List {
+                if !lists.forward.isEmpty {
+                    Section("Forward") {
+                        ForEach(lists.forward) { item in
+                            Button {
+                                store.goToHistoryItem(item)
+                                store.isTabHistoryPresented = false
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(tokens.primaryText)
+                                        .lineLimit(1)
+                                    Text(item.urlString)
+                                        .font(.caption2)
+                                        .foregroundStyle(tokens.secondaryText)
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                    .prismGlassListRow()
+                }
+
+                if !lists.back.isEmpty {
+                    Section("Back") {
+                        ForEach(lists.back) { item in
+                            Button {
+                                store.goToHistoryItem(item)
+                                store.isTabHistoryPresented = false
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(tokens.primaryText)
+                                        .lineLimit(1)
+                                    Text(item.urlString)
+                                        .font(.caption2)
+                                        .foregroundStyle(tokens.secondaryText)
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                    .prismGlassListRow()
+                }
+
+                if lists.back.isEmpty && lists.forward.isEmpty {
+                    ContentUnavailableView("No Tab History", systemImage: "clock")
+                        .listRowBackground(Color.clear)
+                }
+            }
+            .listStyle(.insetGrouped)
+            .prismThemedScrollChrome()
+            .navigationTitle("Tab History")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { store.isTabHistoryPresented = false }
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+        .prismThemedSheetChrome()
+        .presentationDetents([.medium, .large])
     }
 
     private func translationBanner(tokens: PrismThemeTokens) -> some View {
@@ -372,8 +457,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(tokens.cardSurface, in: Capsule())
-        .overlay(Capsule().strokeBorder(tokens.glassStroke, lineWidth: 1))
+        .prismGlassPill()
     }
 
     private func collapsedRevealPill(tokens: PrismThemeTokens) -> some View {
@@ -391,10 +475,10 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
             }
             .foregroundStyle(tokens.primaryText)
             .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .padding(.vertical, 7)
+            .prismGlassPill(interactive: true)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
     }
 
     private func findInPageGlassBar(tokens: PrismThemeTokens) -> some View {
@@ -454,7 +538,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
             .foregroundStyle(tokens.primaryText)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
-            .glassEffect(.regular, in: .capsule)
+            .prismGlassPill()
         }
     }
 }

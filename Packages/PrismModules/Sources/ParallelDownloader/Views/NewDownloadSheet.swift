@@ -1,3 +1,4 @@
+import PrismCore
 import SDMCore
 import SwiftUI
 import UIKit
@@ -5,6 +6,7 @@ import UIKit
 public struct NewDownloadSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable private var store: ParallelDownloadStore
+    @State private var themeEngine = PrismThemeEngine.shared
 
     @State private var urlInput = ""
     @State private var customFilename = ""
@@ -21,6 +23,7 @@ public struct NewDownloadSheet: View {
     }
 
     public var body: some View {
+        let tokens = themeEngine.tokens
         NavigationStack {
             Form {
                 Section("Download URL") {
@@ -48,6 +51,7 @@ public struct NewDownloadSheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
+                .prismGlassListRow()
 
                 Section("Transfer Engine") {
                     Picker("Engine", selection: $selectedBackend) {
@@ -68,18 +72,19 @@ public struct NewDownloadSheet: View {
                                     .monospacedDigit()
                             }
                             Slider(value: $bandwidthLimitMBps, in: 0...50, step: 0.5)
-                                .tint(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                                .tint(tokens.accent)
                         }
                     } else if selectedBackend == .sdmBackgroundSession {
                         Text("Uses iOS native background URLSession transfer daemon (single connection, continues in background).")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Streams HLS/DASH manifests via FFmpeg Libavformat (-c copy, aac_adtstoasc) into a faststart .mp4 file.")
+                        Text("Streams HLS/DASH manifests via Two-Stage Parallel HLS + FFmpeg Libavformat (-c copy, aac_adtstoasc) into a faststart .mp4 file.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
+                .prismGlassListRow()
 
                 if let errorMessage {
                     Section {
@@ -87,6 +92,7 @@ public struct NewDownloadSheet: View {
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
+                    .prismGlassListRow()
                 }
 
                 Section {
@@ -98,14 +104,17 @@ public struct NewDownloadSheet: View {
                             systemImage: "arrow.down.circle.fill"
                         )
                         .font(.headline)
+                        .foregroundStyle(tokens.accentText)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                     }
                     .disabled(isSubmitting || urlInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .buttonStyle(.glassProminent)
-                    .tint(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                    .tint(tokens.accent)
                 }
+                .listRowBackground(Color.clear)
             }
+            .prismThemedScrollChrome()
             .navigationTitle("New Download")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -114,6 +123,7 @@ public struct NewDownloadSheet: View {
                 }
             }
         }
+        .prismThemedSheetChrome()
         .presentationDetents([.medium, .large])
     }
 

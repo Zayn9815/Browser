@@ -10,6 +10,7 @@ public struct StartPageView: View {
     private let bookmarks: [BookmarkRecord]
     private let onOpenDownloads: () -> Void
     private let onOpenVault: () -> Void
+    private let onOpenSettings: (() -> Void)?
 
     @State private var isEditingShortcuts = false
     @State private var showAddShortcutSheet = false
@@ -18,22 +19,24 @@ public struct StartPageView: View {
     @State private var draftURL = ""
 
     private let shortcutColumns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14),
     ]
 
     public init(
         store: BrowserStore,
         bookmarks: [BookmarkRecord],
         onOpenDownloads: @escaping () -> Void,
-        onOpenVault: @escaping () -> Void
+        onOpenVault: @escaping () -> Void,
+        onOpenSettings: (() -> Void)? = nil
     ) {
         self.store = store
         self.bookmarks = bookmarks
         self.onOpenDownloads = onOpenDownloads
         self.onOpenVault = onOpenVault
+        self.onOpenSettings = onOpenSettings
     }
 
     private var isTopBarMode: Bool {
@@ -46,102 +49,88 @@ public struct StartPageView: View {
             PrismAtmosphericWallpaperView(themeEngine: themeEngine)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 24) {
                     headerSection(tokens: tokens)
                     shortcutsSection(tokens: tokens)
+                    privacyReportCard(tokens: tokens)
                     quickActionsSection(tokens: tokens)
                     if !bookmarks.isEmpty {
                         bookmarksSection(tokens: tokens)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, isTopBarMode ? 84 : 24)
-                .padding(.bottom, isTopBarMode ? 60 : 128)
+                .padding(.horizontal, 18)
+                .padding(.top, isTopBarMode ? 84 : 22)
+                .padding(.bottom, isTopBarMode ? 64 : 132)
             }
             .scrollIndicators(.hidden)
         }
         .sheet(isPresented: $showAddShortcutSheet) {
             shortcutEditorSheet(isEditingExisting: false)
+                .prismThemedSheetChrome()
         }
         .sheet(item: $editingShortcut) { item in
             shortcutEditorSheet(isEditingExisting: true, existingID: item.id)
+                .prismThemedSheetChrome()
         }
     }
+
+    // MARK: - Top Brand & Google Account Pill
 
     private func headerSection(tokens: PrismThemeTokens) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center) {
-                HStack(spacing: 10) {
-                    Image(systemName: store.activeTab.isIncognito ? "eye.slash.fill" : "pyramid.fill")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(store.activeTab.isIncognito ? Color.purple : tokens.accent)
-                    Text(store.activeTab.isIncognito ? "Private Incognito" : "PrismDM")
-                        .font(.largeTitle.weight(.bold))
-                        .foregroundStyle(tokens.primaryText)
-                }
+        HStack(alignment: .center) {
+            HStack(spacing: 10) {
+                Image(systemName: store.activeTab.isIncognito ? "eye.slash.fill" : "pyramid.fill")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(store.activeTab.isIncognito ? Color.purple : tokens.accent)
+                    .shadow(color: (store.activeTab.isIncognito ? Color.purple : tokens.accent).opacity(0.45), radius: 8)
 
-                Spacer()
+                Text(store.activeTab.isIncognito ? "Private" : "PrismDM")
+                    .font(.largeTitle.weight(.bold))
+                    .foregroundStyle(tokens.primaryText)
+            }
 
-                if !store.activeTab.isIncognito {
-                    Button {
-                        store.presentGoogleSignIn(manageAccount: store.googleAccount.isSignedIn)
-                    } label: {
-                        if store.googleAccount.isSignedIn, let profile = store.googleAccount.profile {
-                            HStack(spacing: 6) {
-                                Text(profile.initials)
-                                    .font(.caption.weight(.bold))
-                                    .foregroundStyle(tokens.accentText)
-                                    .frame(width: 26, height: 26)
-                                    .background(tokens.accent, in: .circle)
-                                Text("Google")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(tokens.primaryText)
-                            }
-                            .padding(.leading, 4)
-                            .padding(.trailing, 10)
-                            .padding(.vertical, 4)
-                            .glassEffect(.regular.interactive(), in: .capsule)
-                        } else {
-                            Label("Sign In", systemImage: "person.crop.circle")
+            Spacer()
+
+            if !store.activeTab.isIncognito {
+                Button {
+                    store.presentGoogleSignIn(manageAccount: store.googleAccount.isSignedIn)
+                } label: {
+                    if store.googleAccount.isSignedIn, let profile = store.googleAccount.profile {
+                        HStack(spacing: 6) {
+                            Text(profile.initials)
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(tokens.accentText)
+                                .frame(width: 26, height: 26)
+                                .background(tokens.accent, in: .circle)
+                            Text("Google")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(tokens.primaryText)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .glassEffect(.regular.interactive(), in: .capsule)
                         }
+                        .padding(.leading, 4)
+                        .padding(.trailing, 11)
+                        .padding(.vertical, 4)
+                        .prismGlassPill(interactive: true)
+                    } else {
+                        Label("Sign In", systemImage: "person.crop.circle")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(tokens.primaryText)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .prismGlassPill(interactive: true)
                     }
-                    .buttonStyle(.borderless)
                 }
+                .buttonStyle(.borderless)
             }
-
-            HStack(spacing: 8) {
-                Image(systemName: store.activeTab.isIncognito
-                    ? "lock.shield.fill"
-                    : (store.globalAdBlockEnabled ? "shield.lefthalf.filled" : "shield.slash"))
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(store.activeTab.isIncognito ? .purple : tokens.accent)
-
-                Text(store.activeTab.isIncognito
-                    ? "Ephemeral session • Zero history • Biometric-locked"
-                    : (store.globalAdBlockEnabled
-                        ? "Shield active • \(store.adBlockCompiler.totalActiveRules > 0 ? "\(store.adBlockCompiler.totalActiveRules) offline rules" : AdBlockManifestLoader.summary())"
-                        : "AdBlock paused • Configure in Settings"))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(tokens.secondaryText)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(tokens.cardSurface, in: Capsule())
-            .overlay(Capsule().strokeBorder(tokens.hairline, lineWidth: 1))
         }
     }
 
+    // MARK: - Safari iOS 26 Style 4-Column Favorites / Shortcuts Grid
+
     private func shortcutsSection(tokens: PrismThemeTokens) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Shortcuts")
-                    .font(.headline.weight(.bold))
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Favorites")
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(tokens.primaryText)
 
                 Spacer()
@@ -153,7 +142,7 @@ public struct StartPageView: View {
                         showAddShortcutSheet = true
                     } label: {
                         Label("Add", systemImage: "plus")
-                            .font(.caption.weight(.semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(tokens.accent)
                     }
                     .buttonStyle(.borderless)
@@ -165,12 +154,12 @@ public struct StartPageView: View {
                         isEditingShortcuts.toggle()
                     }
                 }
-                .font(.caption.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(tokens.accent)
                 .buttonStyle(.borderless)
             }
 
-            LazyVGrid(columns: shortcutColumns, spacing: 14) {
+            LazyVGrid(columns: shortcutColumns, spacing: 16) {
                 ForEach(Array(store.shortcutStore.shortcuts.enumerated()), id: \.element.id) { index, shortcut in
                     shortcutTile(shortcut: shortcut, index: index, tokens: tokens)
                         .onAppear {
@@ -178,29 +167,21 @@ public struct StartPageView: View {
                         }
                 }
 
-                // Always-visible Add tile in edit mode (or when grid is sparse)
                 if isEditingShortcuts || store.shortcutStore.shortcuts.count < 8 {
                     Button {
                         draftTitle = ""
                         draftURL = ""
                         showAddShortcutSheet = true
                     } label: {
-                        VStack(spacing: 6) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(tokens.cardSurface)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                            .strokeBorder(tokens.hairline, style: StrokeStyle(lineWidth: 1.2, dash: [4, 4]))
-                                    )
-                                    .frame(width: 56, height: 56)
+                        VStack(spacing: 7) {
+                            Image(systemName: "plus")
+                                .font(.title2.weight(.semibold))
+                                .foregroundStyle(tokens.accent)
+                                .frame(width: 60, height: 60)
+                                .prismGlassCard(cornerRadius: 16)
 
-                                Image(systemName: "plus")
-                                    .font(.title3.weight(.semibold))
-                                    .foregroundStyle(tokens.accent)
-                            }
                             Text("Add")
-                                .font(.caption2.weight(.medium))
+                                .font(.caption2.weight(.semibold))
                                 .foregroundStyle(tokens.secondaryText)
                                 .lineLimit(1)
                         }
@@ -224,36 +205,30 @@ public struct StartPageView: View {
                     store.navigate(to: url)
                 }
             } label: {
-                VStack(spacing: 6) {
+                VStack(spacing: 7) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(tokens.cardSurface)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .strokeBorder(tokens.glassStroke.opacity(0.65), lineWidth: 0.9)
-                            )
-                            .frame(width: 56, height: 56)
-
                         if let cachedImage {
                             Image(uiImage: cachedImage)
                                 .resizable()
                                 .scaledToFit()
-                                .frame(width: 30, height: 30)
-                                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                .frame(width: 34, height: 34)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         } else {
                             ZStack {
                                 Circle()
                                     .fill(Color.prismHex(shortcut.brandHex).gradient)
-                                    .frame(width: 34, height: 34)
+                                    .frame(width: 36, height: 36)
                                 Text(shortcut.monogram)
-                                    .font(.subheadline.weight(.bold))
+                                    .font(.headline.weight(.bold))
                                     .foregroundStyle(.white)
                             }
                         }
                     }
+                    .frame(width: 60, height: 60)
+                    .prismGlassCard(cornerRadius: 16)
 
                     Text(shortcut.title)
-                        .font(.caption2.weight(.medium))
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(tokens.primaryText)
                         .lineLimit(1)
                 }
@@ -325,10 +300,64 @@ public struct StartPageView: View {
         }
     }
 
+    // MARK: - Safari iOS 26 Style Frosted Privacy Report Glass Card
+
+    private func privacyReportCard(tokens: PrismThemeTokens) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Privacy Report")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(tokens.primaryText)
+
+            Button {
+                onOpenSettings?()
+            } label: {
+                HStack(spacing: 14) {
+                    HStack(spacing: 6) {
+                        Image(systemName: store.activeTab.isIncognito
+                            ? "lock.shield.fill"
+                            : (store.globalAdBlockEnabled ? "shield.lefthalf.filled" : "shield.slash"))
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(store.activeTab.isIncognito ? .purple : tokens.accent)
+
+                        Text("\(store.trackerMonitor.sessionTotalBlocked)")
+                            .font(.title2.weight(.bold).monospacedDigit())
+                            .foregroundStyle(tokens.primaryText)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(store.activeTab.isIncognito
+                            ? "Private Incognito session active. Zero cookies or history saved."
+                            : (store.globalAdBlockEnabled
+                                ? "PrismDM Shield active with \(store.adBlockCompiler.totalActiveRules > 0 ? "\(store.adBlockCompiler.totalActiveRules) offline rules" : AdBlockManifestLoader.summary())."
+                                : "AdBlock paused. Tap to configure Shield & YouTube Ad-Free protection."))
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(tokens.primaryText)
+                            .multilineTextAlignment(.leading)
+
+                        if !store.activeTab.isIncognito && store.settings.youTubeAdShieldEnabled && store.globalAdBlockEnabled {
+                            Text("EasyList • EasyPrivacy • YouTube Ad-Free Shield")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(tokens.secondaryText)
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .prismGlassCard(cornerRadius: 22)
+                .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    // MARK: - Quick Actions
+
     private func quickActionsSection(tokens: PrismThemeTokens) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Quick Actions")
-                .font(.headline.weight(.bold))
+                .font(.title3.weight(.bold))
                 .foregroundStyle(tokens.primaryText)
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -351,7 +380,7 @@ public struct StartPageView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 9) {
                 Image(systemName: icon)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(tokens.accent)
@@ -361,28 +390,26 @@ public struct StartPageView: View {
                 Spacer()
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(tokens.cardSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(tokens.hairline, lineWidth: 1)
-            )
+            .padding(.vertical, 13)
+            .prismGlassCard(cornerRadius: 16)
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
     }
 
+    // MARK: - Bookmarks
+
     private func bookmarksSection(tokens: PrismThemeTokens) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Bookmarks")
-                    .font(.headline.weight(.bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(tokens.primaryText)
                 Spacer()
-                Button("All") {
+                Button("Show All") {
                     store.isBookmarksHistoryPresented = true
                 }
-                .font(.caption.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(tokens.accent)
                 .buttonStyle(.borderless)
             }
@@ -406,21 +433,15 @@ public struct StartPageView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
-                        .background(
-                            ConcentricRectangle(corners: .concentric(minimum: 12), isUniform: true)
-                                .fill(tokens.cardSurface)
-                        )
-                        .overlay(
-                            ConcentricRectangle(corners: .concentric(minimum: 12), isUniform: true)
-                                .stroke(tokens.hairline, lineWidth: 1)
-                        )
+                        .prismGlassCard(cornerRadius: 16)
                     }
                     .buttonStyle(.borderless)
                 }
             }
-            .containerShape(.rect(cornerRadius: 18))
         }
     }
+
+    // MARK: - Shortcut Editor Sheet
 
     private func shortcutEditorSheet(isEditingExisting: Bool, existingID: UUID? = nil) -> some View {
         NavigationStack {
@@ -432,6 +453,7 @@ public struct StartPageView: View {
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                 }
+                .prismGlassListRow()
 
                 if isEditingExisting {
                     Section {
@@ -440,8 +462,10 @@ public struct StartPageView: View {
                             editingShortcut = nil
                         }
                     }
+                    .prismGlassListRow()
                 }
             }
+            .prismThemedScrollChrome()
             .navigationTitle(isEditingExisting ? "Edit Shortcut" : "Add Shortcut")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

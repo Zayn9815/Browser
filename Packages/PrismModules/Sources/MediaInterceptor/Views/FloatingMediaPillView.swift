@@ -1,6 +1,8 @@
+import PrismCore
 import SwiftUI
 
 public struct FloatingMediaPillView: View {
+    @State private var themeEngine = PrismThemeEngine.shared
     private let item: InterceptedMediaItem
     private let onPlay: () -> Void
     private let onDownload: () -> Void
@@ -17,6 +19,7 @@ public struct FloatingMediaPillView: View {
     }
 
     public var body: some View {
+        let tokens = themeEngine.tokens
         if !item.isDRMProtected {
             // Strictly no SwiftUI Menu inside GlassEffectContainer
             GlassEffectContainer(spacing: 10) {
@@ -28,19 +31,19 @@ public struct FloatingMediaPillView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "play.fill")
                                 .font(.caption.weight(.bold))
-                                .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                                .foregroundStyle(tokens.accent)
                             Text("Play")
                                 .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(tokens.primaryText)
                             if let height = item.videoHeight, height > 0 {
                                 Text("\(height)p")
                                     .font(.caption2.weight(.bold))
-                                    .foregroundStyle(.white.opacity(0.75))
+                                    .foregroundStyle(tokens.secondaryText)
                             }
                         }
-                        .foregroundStyle(.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
-                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .prismGlassPill(interactive: true)
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.borderless)
@@ -55,13 +58,10 @@ public struct FloatingMediaPillView: View {
                             Text(item.containerHint == .m3u8 ? "HLS" : "Download")
                                 .font(.subheadline.weight(.semibold))
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(tokens.accentText)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
-                        .glassEffect(
-                            .regular.tint(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0)).interactive(),
-                            in: .capsule
-                        )
+                        .prismGlassPill(prominent: true, interactive: true)
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.borderless)

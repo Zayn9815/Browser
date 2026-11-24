@@ -104,11 +104,7 @@ public struct VaultLockOverlayView: View {
             }
             .padding(28)
             .frame(maxWidth: 340)
-            .background(tokens.cardSurface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .strokeBorder(tokens.glassStroke, lineWidth: 1)
-            )
+            .prismGlassCard(cornerRadius: 28, prominent: true)
             .padding(.horizontal, 20)
         }
     }

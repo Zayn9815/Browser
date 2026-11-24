@@ -1,3 +1,4 @@
+import PrismCore
 import SwiftUI
 import UIKit
 import VaultManager
@@ -5,6 +6,7 @@ import VaultManager
 public struct TabGridSwitcherView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable private var store: BrowserStore
+    @State private var themeEngine = PrismThemeEngine.shared
     @State private var showPrivateSection = false
     @State private var hapticCounter = 0
 
@@ -23,12 +25,12 @@ public struct TabGridSwitcherView: View {
     }
 
     public var body: some View {
+        let tokens = themeEngine.tokens
         ZStack(alignment: .bottom) {
-            PrismBrandPalette.obsidianBackground
-                .ignoresSafeArea()
+            PrismThemeBackdropView()
 
             VStack(spacing: 0) {
-                headerBar
+                headerBar(tokens: tokens)
 
                 if showPrivateSection && !store.authService.isPrivateUnlocked {
                     VaultLockOverlayView(
@@ -46,25 +48,28 @@ public struct TabGridSwitcherView: View {
                                     ? "Tap + below to start an ephemeral Private session with non-persistent storage."
                                     : "Tap + below to open a new browser tab.")
                             )
+                            .foregroundStyle(tokens.primaryText)
                             .padding(.top, 72)
                         } else {
                             LazyVGrid(columns: columns, spacing: 14) {
                                 ForEach(displayedTabs) { tab in
-                                    tabCard(for: tab)
+                                    tabCard(for: tab, tokens: tokens)
                                 }
                             }
                             .padding(.horizontal, 14)
                             .padding(.top, 10)
-                            .padding(.bottom, 100)
+                            .padding(.bottom, 108)
                         }
                     }
                 }
             }
 
-            bottomGlassToolbar
+            bottomGlassToolbar(tokens: tokens)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 14)
         }
+        .preferredColorScheme(tokens.preferredColorScheme)
+        .tint(tokens.accent)
         .sensoryFeedback(.impact(flexibility: .solid, intensity: 0.7), trigger: hapticCounter)
         .task {
             _ = await store.webViewPool.captureSnapshotAndState(
@@ -74,22 +79,25 @@ public struct TabGridSwitcherView: View {
         }
     }
 
-    private var headerBar: some View {
+    private func headerBar(tokens: PrismThemeTokens) -> some View {
         HStack {
             Text(showPrivateSection ? "Private Tabs (\(store.incognitoTabs.count))" : "Tabs (\(store.normalTabs.count))")
                 .font(.headline.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(tokens.primaryText)
             Spacer()
-            Text("LRU Live: \(store.webViewPool.liveTabCount)/\(store.webViewPool.maxLiveWebViews)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.65))
+            Text("Live: \(store.webViewPool.liveTabCount)/\(store.webViewPool.maxLiveWebViews)")
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(tokens.secondaryText)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .prismGlassPill()
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 8)
     }
 
-    private func tabCard(for tab: BrowserTabState) -> some View {
+    private func tabCard(for tab: BrowserTabState, tokens: PrismThemeTokens) -> some View {
         let isSelected = tab.id == store.activeTabID
         let thumbnail = store.webViewPool.loadSnapshotImage(for: tab.id, isIncognito: tab.isIncognito)
 
@@ -97,11 +105,11 @@ public struct TabGridSwitcherView: View {
             HStack(spacing: 6) {
                 Image(systemName: tab.isIncognito ? "eye.slash.fill" : "globe")
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(tab.isIncognito ? .purple : PrismBrandPalette.crimsonAccent)
+                    .foregroundStyle(tab.isIncognito ? .purple : tokens.accent)
 
                 Text(tab.title.isEmpty ? tab.displayHost : tab.title)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(tokens.primaryText)
                     .lineLimit(1)
 
                 Spacer(minLength: 2)
@@ -114,118 +122,128 @@ public struct TabGridSwitcherView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.75))
-                        .frame(width: 34, height: 34)
+                        .foregroundStyle(tokens.secondaryText)
+                        .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel("Close \(tab.title)")
+                .accessibilityLabel("Close Tab")
             }
             .padding(.leading, 10)
             .padding(.trailing, 4)
-            .padding(.vertical, 2)
-            .background(Color.white.opacity(0.06))
+            .padding(.vertical, 6)
 
-            ZStack {
-                PrismBrandPalette.obsidianElevated
-                if let thumbnail {
-                    Image(uiImage: thumbnail)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    VStack(spacing: 6) {
-                        Image(systemName: tab.isIncognito ? "eye.slash" : "safari")
-                            .font(.title2)
-                            .foregroundStyle(.white.opacity(0.4))
-                        Text(tab.displayHost)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.55))
-                            .lineLimit(1)
-                            .padding(.horizontal, 8)
-                    }
-                }
-            }
-            .frame(height: 175)
-            .clipped()
-            .clipShape(ConcentricRectangle(corners: .concentric(minimum: 12), isUniform: true))
-            .padding(6)
-            .contentShape(Rectangle())
-            .onTapGesture {
+            Button {
                 hapticCounter += 1
                 store.selectTab(tab.id)
                 dismiss()
+            } label: {
+                ZStack {
+                    if let thumbnail {
+                        Image(uiImage: thumbnail)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        tokens.canvasMid.opacity(0.65)
+                        VStack(spacing: 6) {
+                            Image(systemName: tab.urlString.isEmpty ? "pyramid.fill" : "safari")
+                                .font(.title2)
+                                .foregroundStyle(tokens.accent.opacity(0.85))
+                            Text(tab.displayHost)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(tokens.secondaryText)
+                                .lineLimit(1)
+                                .padding(.horizontal, 8)
+                        }
+                    }
+                }
+                .frame(height: 184)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding([.horizontal, .bottom], 6)
             }
+            .buttonStyle(.plain)
         }
-        .background(PrismBrandPalette.obsidianElevated)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(
-                    isSelected ? PrismBrandPalette.crimsonAccent : Color.white.opacity(0.14),
-                    lineWidth: isSelected ? 2.2 : 1
-                )
-        )
-        .containerShape(.rect(cornerRadius: 20))
+        .prismGlassCard(cornerRadius: 18, prominent: isSelected)
+        .shadow(color: isSelected ? tokens.accent.opacity(0.32) : .clear, radius: 10, y: 3)
     }
 
-    private var bottomGlassToolbar: some View {
-        GlassEffectContainer(spacing: 12) {
+    private func bottomGlassToolbar(tokens: PrismThemeTokens) -> some View {
+        GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
                 Button {
                     hapticCounter += 1
-                    withAnimation(.snappy) {
-                        showPrivateSection.toggle()
-                    }
+                    store.createTab(url: nil, isIncognito: showPrivateSection, activate: true)
+                    dismiss()
                 } label: {
-                    Label(
-                        showPrivateSection ? "Private" : "Normal",
-                        systemImage: showPrivateSection ? "eye.slash.fill" : "square.on.square"
-                    )
-                    .font(.subheadline.weight(.semibold))
+                    Image(systemName: "plus")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(tokens.accentText)
+                        .prismGlassCircleButton(size: 46, prominent: true)
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(.borderless)
+                .accessibilityLabel(showPrivateSection ? "New Private Tab" : "New Tab")
+
+                HStack(spacing: 4) {
+                    Button {
+                        hapticCounter += 1
+                        withAnimation(.snappy) { showPrivateSection = false }
+                    } label: {
+                        Text("Tabs")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(!showPrivateSection ? tokens.accentText : tokens.primaryText)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(!showPrivateSection ? tokens.accent : Color.clear, in: Capsule())
+                    }
+                    .buttonStyle(.borderless)
+
+                    Button {
+                        hapticCounter += 1
+                        withAnimation(.snappy) { showPrivateSection = true }
+                    } label: {
+                        Label("Private", systemImage: "eye.slash.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(showPrivateSection ? .white : tokens.primaryText)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(showPrivateSection ? Color.purple : Color.clear, in: Capsule())
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(4)
+                .prismGlassPill()
 
                 Spacer()
 
-                if showPrivateSection && store.authService.isPrivateUnlocked && !store.incognitoTabs.isEmpty {
-                    Button(role: .destructive) {
+                if showPrivateSection && !store.incognitoTabs.isEmpty && store.authService.isPrivateUnlocked {
+                    Button {
                         hapticCounter += 1
                         store.closeAllIncognitoTabs()
                     } label: {
-                        Image(systemName: "trash.fill")
+                        Text("Burn")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(tokens.destructive, in: Capsule())
                     }
-                    .buttonStyle(.glass)
-                    .accessibilityLabel("Close All Private Tabs")
+                    .buttonStyle(.borderless)
                 }
 
                 Button {
                     hapticCounter += 1
-                    if showPrivateSection && !store.authService.isPrivateUnlocked {
-                        Task {
-                            if await store.authService.authenticate() {
-                                store.createTab(url: nil, isIncognito: true, activate: true)
-                                dismiss()
-                            }
-                        }
-                    } else {
-                        store.createTab(url: nil, isIncognito: showPrivateSection, activate: true)
-                        dismiss()
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.headline.weight(.bold))
-                        .frame(width: 28, height: 24)
-                }
-                .buttonStyle(.glassProminent)
-                .tint(PrismBrandPalette.crimsonAccent)
-                .accessibilityLabel("New Tab")
-
-                Button("Done") {
-                    hapticCounter += 1
                     dismiss()
+                } label: {
+                    Text("Done")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(tokens.primaryText)
+                        .padding(.horizontal, 16)
+                        .frame(height: 46)
+                        .prismGlassPill(interactive: true)
                 }
-                .font(.subheadline.weight(.semibold))
-                .buttonStyle(.glass)
+                .buttonStyle(.borderless)
             }
         }
     }

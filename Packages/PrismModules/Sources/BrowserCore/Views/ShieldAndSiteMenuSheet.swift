@@ -144,15 +144,20 @@ public struct ShieldAndSiteMenuSheet: View {
                         }
                     }
                 }
+                .prismGlassListRow()
             }
+            .listStyle(.insetGrouped)
+            .prismThemedScrollChrome()
             .navigationTitle("Page Controls")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
                 }
             }
         }
+        .prismThemedSheetChrome()
         .presentationDetents([.medium, .large])
     }
 }
@@ -262,7 +267,11 @@ public struct BookmarksAndHistorySheet: View {
                         }
                     }
                 }
+                .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
             }
+            .background(PrismThemeBackdropView())
+            .toolbarBackground(.hidden, for: .navigationBar)
             .searchable(text: $searchText, prompt: "Filter bookmarks or history")
             .navigationTitle(selectedSection == 0 ? "Bookmarks" : "History")
             .navigationBarTitleDisplayMode(.inline)
@@ -279,8 +288,10 @@ public struct BookmarksAndHistorySheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
                 }
             }
         }
+        .prismThemedSheetChrome()
     }
 }

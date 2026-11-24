@@ -47,9 +47,13 @@ public enum PrismThemeID: String, CaseIterable, Codable, Sendable, Identifiable 
                 canvasEdge: .prismHex(0x0D0305),
                 elevatedSurface: .prismHex(0x2C0811),
                 cardSurface: .prismHex(0x3A0C18, alpha: 0.54),
+                plainCellSurface: .prismHex(0x3A0C18, alpha: 0.42),
                 glassTint: .prismHex(0x3A0C18, alpha: 0.54),
+                glassAlpha: 0.54,
                 glassStroke: .prismHex(0xFFE0E8, alpha: 0.32),
                 glassSecondaryStroke: .prismHex(0xFF6482, alpha: 0.26),
+                sheen: .prismHex(0xFFD6E0),
+                sheenAlpha: 0.07,
                 hairline: .prismHex(0xFFDCE4, alpha: 0.16),
                 primaryText: .prismHex(0xFFFFFF),
                 secondaryText: .prismHex(0xF4B8C4),
@@ -72,9 +76,13 @@ public enum PrismThemeID: String, CaseIterable, Codable, Sendable, Identifiable 
                 canvasEdge: .prismHex(0x050608),
                 elevatedSurface: .prismHex(0x161920),
                 cardSurface: .prismHex(0x161920, alpha: 0.72),
+                plainCellSurface: .prismHex(0x161920, alpha: 0.56),
                 glassTint: .prismHex(0x161920, alpha: 0.72),
+                glassAlpha: 0.72,
                 glassStroke: .prismHex(0xFFFFFF, alpha: 0.30),
                 glassSecondaryStroke: .prismHex(0x5AC8FA, alpha: 0.24),
+                sheen: .prismHex(0xFFFFFF),
+                sheenAlpha: 0.07,
                 hairline: .prismHex(0xFFFFFF, alpha: 0.10),
                 primaryText: .prismHex(0xFFFFFF),
                 secondaryText: .prismHex(0x9BA3B0),
@@ -97,9 +105,13 @@ public enum PrismThemeID: String, CaseIterable, Codable, Sendable, Identifiable 
                 canvasEdge: .prismHex(0x04090E),
                 elevatedSurface: .prismHex(0x11283F),
                 cardSurface: .prismHex(0x102A45, alpha: 0.48),
+                plainCellSurface: .prismHex(0x102A45, alpha: 0.36),
                 glassTint: .prismHex(0x102A45, alpha: 0.48),
+                glassAlpha: 0.48,
                 glassStroke: .prismHex(0xE0FFFF, alpha: 0.32),
                 glassSecondaryStroke: .prismHex(0x80F0FF, alpha: 0.22),
+                sheen: .prismHex(0xE0FFFF),
+                sheenAlpha: 0.06,
                 hairline: .prismHex(0xD1E8FA, alpha: 0.16),
                 primaryText: .prismHex(0xFFFFFF),
                 secondaryText: .prismHex(0xB0E2FF),
@@ -122,9 +134,13 @@ public enum PrismThemeID: String, CaseIterable, Codable, Sendable, Identifiable 
                 canvasEdge: .prismHex(0x050608),
                 elevatedSurface: .prismHex(0x141820),
                 cardSurface: .prismHex(0x12161D, alpha: 0.74),
+                plainCellSurface: .prismHex(0x12161D, alpha: 0.60),
                 glassTint: .prismHex(0x12161D, alpha: 0.74),
+                glassAlpha: 0.74,
                 glassStroke: .prismHex(0xDAE2EE, alpha: 0.26),
                 glassSecondaryStroke: .prismHex(0x32D74B, alpha: 0.24),
+                sheen: .prismHex(0xFFFFFF),
+                sheenAlpha: 0.05,
                 hairline: .prismHex(0xFFFFFF, alpha: 0.09),
                 primaryText: .prismHex(0xFFFFFF),
                 secondaryText: .prismHex(0x9AA3B2),
@@ -147,9 +163,13 @@ public enum PrismThemeID: String, CaseIterable, Codable, Sendable, Identifiable 
                 canvasEdge: .prismHex(0x120C07),
                 elevatedSurface: .prismHex(0x24180F),
                 cardSurface: .prismHex(0x2B1D12, alpha: 0.68),
+                plainCellSurface: .prismHex(0x2B1D12, alpha: 0.50),
                 glassTint: .prismHex(0x2B1D12, alpha: 0.68),
+                glassAlpha: 0.68,
                 glassStroke: .prismHex(0xF5D6A7, alpha: 0.34),
                 glassSecondaryStroke: .prismHex(0xD97742, alpha: 0.28),
+                sheen: .prismHex(0xF5D6A7),
+                sheenAlpha: 0.08,
                 hairline: .prismHex(0xF5D6A7, alpha: 0.16),
                 primaryText: .prismHex(0xFFF7EB),
                 secondaryText: .prismHex(0xD6C0A6),
@@ -172,9 +192,13 @@ public enum PrismThemeID: String, CaseIterable, Codable, Sendable, Identifiable 
                 canvasEdge: .prismHex(0x000000),
                 elevatedSurface: .prismHex(0x1C1C1E),
                 cardSurface: .prismHex(0x1C1C1E, alpha: 0.88),
+                plainCellSurface: .prismHex(0x1C1C1E, alpha: 0.82),
                 glassTint: .prismHex(0x1C1C1E, alpha: 0.88),
+                glassAlpha: 0.88,
                 glassStroke: .prismHex(0xFFFFFF, alpha: 0.16),
                 glassSecondaryStroke: .prismHex(0x0A84FF, alpha: 0.22),
+                sheen: .prismHex(0xFFFFFF),
+                sheenAlpha: 0.02,
                 hairline: .prismHex(0x545458, alpha: 0.45),
                 primaryText: .prismHex(0xFFFFFF),
                 secondaryText: .prismHex(0xA1A1AA),
@@ -193,13 +217,17 @@ public enum PrismThemeID: String, CaseIterable, Codable, Sendable, Identifiable 
                 id: self,
                 canvasTop: .prismHex(0xF6F7FB),
                 canvasMid: .prismHex(0xECEFF6),
-                canvasGlow: .prismHex(0xE2E7F4),
+                canvasGlow: .prismHex(0xDCE5F8),
                 canvasEdge: .prismHex(0xE8ECF5),
                 elevatedSurface: .prismHex(0xFFFFFF),
-                cardSurface: .prismHex(0xFFFFFF, alpha: 0.84),
-                glassTint: .prismHex(0xFFFFFF, alpha: 0.80),
+                cardSurface: .prismHex(0xFFFFFF, alpha: 0.78),
+                plainCellSurface: .prismHex(0xFFFFFF, alpha: 0.68),
+                glassTint: .prismHex(0xFFFFFF, alpha: 0.76),
+                glassAlpha: 0.76,
                 glassStroke: .prismHex(0x11131A, alpha: 0.14),
                 glassSecondaryStroke: .prismHex(0xDC143C, alpha: 0.22),
+                sheen: .prismHex(0xFFFFFF),
+                sheenAlpha: 0.22,
                 hairline: .prismHex(0x11131A, alpha: 0.12),
                 primaryText: .prismHex(0x11131A),
                 secondaryText: .prismHex(0x4A5164),
@@ -224,9 +252,13 @@ public struct PrismThemeTokens: Sendable {
     public let canvasEdge: Color
     public let elevatedSurface: Color
     public let cardSurface: Color
+    public let plainCellSurface: Color
     public let glassTint: Color
+    public let glassAlpha: Double
     public let glassStroke: Color
     public let glassSecondaryStroke: Color
+    public let sheen: Color
+    public let sheenAlpha: Double
     public let hairline: Color
     public let primaryText: Color
     public let secondaryText: Color
@@ -241,10 +273,12 @@ public struct PrismThemeTokens: Sendable {
 
     public var canvasBackground: Color { canvasTop }
     public var isLight: Bool { preferredColorScheme == .light }
+    public var isClassicStock: Bool { id == .classicStock }
 }
 
 public enum PrismWallpaperOption: String, CaseIterable, Codable, Sendable, Identifiable {
     case matchActiveTheme
+    case alpineGlacier
     case crimsonRubyGlow
     case glacierAuroraIce
     case anodizedMintMesh
@@ -258,6 +292,7 @@ public enum PrismWallpaperOption: String, CaseIterable, Codable, Sendable, Ident
     public var displayName: String {
         switch self {
         case .matchActiveTheme: return "Match Active Theme"
+        case .alpineGlacier: return "Alpine Glacier"
         case .crimsonRubyGlow: return "Crimson Ruby Glow"
         case .glacierAuroraIce: return "Glacier Aurora Ice"
         case .anodizedMintMesh: return "Anodized Mint Mesh"
@@ -272,6 +307,8 @@ public enum PrismWallpaperOption: String, CaseIterable, Codable, Sendable, Ident
         switch self {
         case .matchActiveTheme:
             return [.prismHex(0x380B16), .prismHex(0xFF2D55)]
+        case .alpineGlacier:
+            return [.prismHex(0xB8CBE8), .prismHex(0x4F83D1), .prismHex(0x1E6A8A)]
         case .crimsonRubyGlow:
             return [.prismHex(0x1A050A), .prismHex(0x4A1020), .prismHex(0xFF2D55)]
         case .glacierAuroraIce:

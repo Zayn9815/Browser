@@ -52,6 +52,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
     public var omniboxText: String = ""
     public var isChromeMinimized: Bool = false
     public var isTabGridPresented: Bool = false
+    public var isTabHistoryPresented: Bool = false
     public var isQRScannerPresented: Bool = false
     public var isSiteMenuPresented: Bool = false
     public var isBrowserMenuPresented: Bool = false
@@ -77,6 +78,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
 
     public weak var downloadCoordinator: (any ParallelDownloadCoordinating)?
     public var onDownloadEnqueuedToast: ((String) -> Void)?
+    public var onOpenYTDLPPicker: ((URL, BrowserSessionContext?) -> Void)?
 
     private var modelContext: ModelContext?
     private let archiveExporter: WebArchiveExporter
@@ -234,6 +236,52 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
         applySitePreferencesIfPresent(for: url.host?.lowercased(), to: activeTabID, webView: webView)
         webView.load(URLRequest(url: url))
         persistNormalTabs()
+    }
+
+    public struct TabBackForwardItem: Identifiable, Sendable {
+        public let id: String
+        public let title: String
+        public let urlString: String
+        public let isBack: Bool
+        public let offset: Int
+    }
+
+    public func backForwardHistoryItems() -> (back: [TabBackForwardItem], forward: [TabBackForwardItem]) {
+        guard let webView = webViewPool.existingWebView(for: activeTabID) else { return ([], []) }
+        let backList = webView.backForwardList.backList.reversed().enumerated().map { idx, item in
+            TabBackForwardItem(
+                id: "back-\(idx)-\(item.url.absoluteString)",
+                title: (item.title?.isEmpty == false ? item.title! : (item.url.host ?? item.url.absoluteString)),
+                urlString: item.url.absoluteString,
+                isBack: true,
+                offset: idx
+            )
+        }
+        let forwardList = webView.backForwardList.forwardList.enumerated().map { idx, item in
+            TabBackForwardItem(
+                id: "fwd-\(idx)-\(item.url.absoluteString)",
+                title: (item.title?.isEmpty == false ? item.title! : (item.url.host ?? item.url.absoluteString)),
+                urlString: item.url.absoluteString,
+                isBack: false,
+                offset: idx
+            )
+        }
+        return (backList, forwardList)
+    }
+
+    public func goToHistoryItem(_ entry: TabBackForwardItem) {
+        guard let webView = webViewPool.existingWebView(for: activeTabID) else { return }
+        if entry.isBack {
+            let reversedBack = Array(webView.backForwardList.backList.reversed())
+            if reversedBack.indices.contains(entry.offset) {
+                webView.go(to: reversedBack[entry.offset])
+            }
+        } else {
+            let fwd = webView.backForwardList.forwardList
+            if fwd.indices.contains(entry.offset) {
+                webView.go(to: fwd[entry.offset])
+            }
+        }
     }
 
     public func goBack() {

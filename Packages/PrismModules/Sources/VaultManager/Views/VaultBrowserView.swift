@@ -136,6 +136,8 @@ public struct VaultBrowserView: View {
                     vaultContentList(tokens: tokens)
                 }
             }
+            .background(PrismThemeBackdropView())
+            .toolbarBackground(.hidden, for: .navigationBar)
             .navigationTitle(isPrivateMode ? "Private Vault" : "Vault")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText, prompt: "Search files & folders")
@@ -508,6 +510,7 @@ public struct VaultBrowserView: View {
                     } else {
                         ForEach(filteredEntries) { item in
                             vaultRow(for: item, tokens: tokens)
+                                .prismGlassListRow()
                         }
                     }
                 } footer: {
@@ -517,6 +520,7 @@ public struct VaultBrowserView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
             .refreshable {
                 await reloadDirectory()
             }

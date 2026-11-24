@@ -177,13 +177,9 @@ public struct PrismAtmosphericWallpaperView: View {
     private func curatedGradient(for option: PrismWallpaperOption, tokens: PrismThemeTokens) -> some View {
         switch option {
         case .matchActiveTheme:
-            meshBackdrop(
-                top: tokens.canvasTop,
-                mid: tokens.canvasMid,
-                edge: tokens.canvasEdge,
-                glowA: tokens.canvasGlow,
-                glowB: tokens.accent.opacity(tokens.isLight ? 0.14 : 0.22)
-            )
+            PrismThemeBackdropView(overrideTokens: tokens)
+        case .alpineGlacier:
+            PrismAlpineWallpaperView()
         case .crimsonRubyGlow:
             meshBackdrop(
                 top: .prismHex(0x1A050A),

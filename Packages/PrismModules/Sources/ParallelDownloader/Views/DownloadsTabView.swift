@@ -69,6 +69,7 @@ public struct DownloadsTabView: View {
                     } else {
                         ForEach(displayedItems) { item in
                             downloadCardRow(item, tokens: tokens)
+                                .prismGlassListRow()
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     if item.state == .completed {
                                         Button(role: .destructive) {
@@ -89,9 +90,9 @@ public struct DownloadsTabView: View {
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
-                .background(tokens.canvasBackground)
             }
-            .background(tokens.canvasBackground.ignoresSafeArea())
+            .background(PrismThemeBackdropView())
+            .toolbarBackground(.hidden, for: .navigationBar)
             .navigationTitle("Downloads")
             .toolbar {
                 if let onDismiss {
@@ -121,6 +122,7 @@ public struct DownloadsTabView: View {
                 Text(errorAlertMessage ?? "")
             }
         }
+        .preferredColorScheme(tokens.preferredColorScheme)
         .tint(tokens.accent)
     }
 
@@ -147,12 +149,8 @@ public struct DownloadsTabView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(
-            ConcentricRectangle(corners: .concentric(minimum: 12), isUniform: true)
-                .fill(tokens.cardSurface)
-        )
-        .containerShape(.rect(cornerRadius: 16))
+        .padding(.vertical, 9)
+        .prismGlassCard(cornerRadius: 16)
     }
 
     private func downloadCardRow(_ item: UnifiedDownloadItem, tokens: PrismThemeTokens) -> some View {

@@ -37,8 +37,7 @@ public struct PrismDMApp: App {
 
                 if scenePhase != .active && browserStore.settings.privacyCurtainEnabled {
                     ZStack {
-                        tokens.canvasBackground
-                            .ignoresSafeArea()
+                        PrismThemeBackdropView()
                         VStack(spacing: 12) {
                             Image(systemName: "lock.shield.fill")
                                 .font(.system(size: 42, weight: .semibold))
@@ -48,7 +47,7 @@ public struct PrismDMApp: App {
                                 .foregroundStyle(tokens.primaryText)
                         }
                         .padding(28)
-                        .glassEffect(.regular, in: .rect(cornerRadius: 24))
+                        .prismGlassCard(cornerRadius: 24, prominent: true)
                     }
                     .transition(.opacity)
                 }

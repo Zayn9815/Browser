@@ -57,7 +57,7 @@ public struct TransferMiniBarView: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.borderless)
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .prismGlassPill(interactive: true)
             } else if audioCenter.hasActiveTrack {
                 HStack(spacing: 10) {
                     Image(systemName: "waveform")
@@ -94,7 +94,7 @@ public struct TransferMiniBarView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
-                .glassEffect(.regular, in: .capsule)
+                .prismGlassPill()
             }
         }
     }
