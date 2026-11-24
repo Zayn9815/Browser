@@ -20,7 +20,7 @@ public final class WebViewLRUPool {
     private let snapshotsDirectory: URL
     private let adBlockCompiler: AdBlockRuleCompiler
     private let trackerMonitor: TrackerShieldMonitor
-    private var memoryWarningObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var memoryWarningObserver: NSObjectProtocol?
 
     public init(
         maxLiveWebViews: Int = BrowserEngineDefaults.maxLiveWebViews,
