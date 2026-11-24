@@ -1,5 +1,6 @@
 import AdBlockEngine
 import Foundation
+import PrismCore
 import UIKit
 import WebKit
 
@@ -7,6 +8,7 @@ import WebKit
 public final class WebViewLRUPool {
     public private(set) var maxLiveWebViews: Int
     public var configureAdditionalScripts: ((WKUserContentController, UUID) -> Void)?
+    public private(set) var currentTopContentInset: CGFloat = 0
 
     private var liveWebViews: [UUID: WKWebView] = [:]
     private var coordinators: [UUID: WebViewNavigationCoordinator] = [:]
@@ -110,6 +112,10 @@ public final class WebViewLRUPool {
         webView.backgroundColor = canvasColor
         webView.scrollView.backgroundColor = canvasColor
         webView.scrollView.contentInsetAdjustmentBehavior = .automatic
+        if currentTopContentInset > 0 {
+            webView.scrollView.contentInset.top = currentTopContentInset
+            webView.scrollView.verticalScrollIndicatorInsets.top = currentTopContentInset
+        }
         webView.pageZoom = settings.defaultPageZoom
         webView.customUserAgent = tab.preferDesktopUserAgent
             ? BrowserEngineDefaults.desktopUserAgent
@@ -289,6 +295,14 @@ public final class WebViewLRUPool {
         }
     }
 
+    public func applyTopContentInset(_ topInset: CGFloat) {
+        currentTopContentInset = max(0, topInset)
+        for webView in liveWebViews.values {
+            webView.scrollView.contentInset.top = currentTopContentInset
+            webView.scrollView.verticalScrollIndicatorInsets.top = currentTopContentInset
+        }
+    }
+
     public func applyAdBlockRules(
         to tabID: UUID,
         siteHost: String?,
@@ -382,6 +396,17 @@ public final class WebViewLRUPool {
                 )
             )
         }
+        if let translatorURL = Bundle.module.url(forResource: "DOMTranslator.user", withExtension: "js"),
+           let translatorSource = try? String(contentsOf: translatorURL, encoding: .utf8) {
+            controller.addUserScript(
+                WKUserScript(
+                    source: translatorSource,
+                    injectionTime: .atDocumentEnd,
+                    forMainFrameOnly: true,
+                    in: .defaultClient
+                )
+            )
+        }
 
         // 3. Tracker telemetry isolated in .defaultClient world
         trackerMonitor.attach(to: controller, tabID: tabID)
@@ -407,6 +432,13 @@ public final class WebViewLRUPool {
     private func evictAllInactiveOnMemoryWarning() {
         let activeID = accessOrder.last
         let victims = accessOrder.filter { $0 != activeID }
+        if !victims.isEmpty {
+            PrismLogCenter.record(
+                .warning,
+                category: .browser,
+                "Memory warning received: evicting \(victims.count) inactive WebView(s)"
+            )
+        }
         for id in victims {
             evict(tabID: id, isIncognito: isTabIncognito(id))
         }

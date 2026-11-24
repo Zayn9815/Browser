@@ -1,3 +1,4 @@
+import PrismCore
 import SwiftData
 import SwiftUI
 import VaultManager
@@ -5,12 +6,14 @@ import VaultManager
 public struct ShieldAndSiteMenuSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable private var store: BrowserStore
+    @State private var themeEngine = PrismThemeEngine.shared
 
     public init(store: BrowserStore) {
         self.store = store
     }
 
     public var body: some View {
+        let tokens = themeEngine.tokens
         NavigationStack {
             List {
                 Section("Connection & Privacy Shield") {
@@ -35,7 +38,7 @@ public struct ShieldAndSiteMenuSheet: View {
                         Spacer()
                         Text("\(store.activeTab.blockedTrackerCount)")
                             .font(.headline.monospacedDigit())
-                            .foregroundStyle(PrismBrandPalette.crimsonAccent)
+                            .foregroundStyle(tokens.accent)
                     }
 
                     Toggle(
@@ -48,6 +51,13 @@ public struct ShieldAndSiteMenuSheet: View {
                 }
 
                 Section("Page Appearance & Reading") {
+                    Button {
+                        dismiss()
+                        store.translateActivePage()
+                    } label: {
+                        Label("Translate Page", systemImage: "translate")
+                    }
+
                     Stepper(
                         value: Binding(
                             get: { store.settings.defaultPageZoom },

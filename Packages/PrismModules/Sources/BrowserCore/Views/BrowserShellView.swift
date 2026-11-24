@@ -1,10 +1,12 @@
 import AdBlockEngine
 import MediaInterceptor
 import ParallelDownloader
+import PrismCore
 import PrismPlayer
 import SDMCore
 import SwiftData
 import SwiftUI
+import Translation
 import VaultManager
 import WebKit
 
@@ -23,6 +25,8 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
     @Bindable public var downloadStore: ParallelDownloadStore
     @Bindable public var audioCenter: BackgroundAudioCenter
     @Binding public var selectedTab: PrismShellTab
+
+    @State private var themeEngine = PrismThemeEngine.shared
 
     private let onPlayVaultMedia: ((URL, String) -> Void)?
     private let downloadsTabContent: () -> DownloadsContent
@@ -50,95 +54,132 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
         self.browserOverlayContent = browserOverlayContent
     }
 
-    private var shouldShowBottomAccessory: Bool {
+    private var shouldShowTransferMiniBar: Bool {
         downloadStore.activeCount > 0 || audioCenter.hasActiveTrack
     }
 
+    private var isTopBarMode: Bool {
+        store.settings.searchBarPosition == .top
+    }
+
     public var body: some View {
-        TabView(selection: $selectedTab) {
-            Tab("Browser", systemImage: "safari.fill", value: PrismShellTab.browser) {
-                browserViewport
+        let tokens = themeEngine.tokens
+        browserViewport(tokens: tokens)
+            .tint(tokens.accent)
+            .onAppear {
+                store.attachModelContext(modelContext)
+                downloadStore.attachModelContext(modelContext)
             }
-
-            Tab("Downloads", systemImage: "arrow.down.circle.fill", value: PrismShellTab.downloads) {
+            .translationTask(store.translationService.configuration) { session in
+                await store.translationService.runTranslationSession(session)
+            }
+            .sheet(
+                isPresented: Binding(
+                    get: { selectedTab == .downloads },
+                    set: { presented in
+                        if !presented && selectedTab == .downloads {
+                            selectedTab = .browser
+                        }
+                    }
+                )
+            ) {
                 downloadsTabContent()
+                    .tint(tokens.accent)
             }
-            .badge(downloadStore.activeCount)
-
-            Tab("Vault", systemImage: "lock.doc.fill", value: PrismShellTab.vault) {
+            .sheet(
+                isPresented: Binding(
+                    get: { selectedTab == .vault },
+                    set: { presented in
+                        if !presented && selectedTab == .vault {
+                            selectedTab = .browser
+                        }
+                    }
+                )
+            ) {
                 VaultBrowserView(
                     authService: store.authService,
                     audioCenter: audioCenter,
-                    onPlayMediaFile: onPlayVaultMedia
+                    onPlayMediaFile: onPlayVaultMedia,
+                    onDismiss: { selectedTab = .browser }
+                )
+                .tint(tokens.accent)
+            }
+            .sheet(
+                isPresented: Binding(
+                    get: { selectedTab == .settings },
+                    set: { presented in
+                        if !presented && selectedTab == .settings {
+                            selectedTab = .browser
+                        }
+                    }
+                )
+            ) {
+                BrowserSettingsView(
+                    store: store,
+                    downloadStore: downloadStore,
+                    onDismiss: { selectedTab = .browser }
+                )
+                .tint(tokens.accent)
+            }
+            .sheet(isPresented: $store.isBrowserMenuPresented) {
+                BrowserMenuSheet(
+                    store: store,
+                    downloadStore: downloadStore,
+                    onOpenDownloads: { selectedTab = .downloads },
+                    onOpenVault: { selectedTab = .vault },
+                    onOpenSettings: { selectedTab = .settings }
                 )
             }
-
-            Tab("Settings", systemImage: "gearshape.fill", value: PrismShellTab.settings) {
-                BrowserSettingsView(store: store, downloadStore: downloadStore)
+            .fullScreenCover(isPresented: $store.isTabGridPresented) {
+                TabGridSwitcherView(store: store)
             }
-        }
-        .tabBarMinimizeBehavior(.onScrollDown)
-        .prismBottomAccessory(isVisible: shouldShowBottomAccessory) {
-            TransferMiniBarView(
-                downloadStore: downloadStore,
-                audioCenter: audioCenter,
-                onOpenDownloads: { selectedTab = .downloads }
-            )
-        }
-        .tint(PrismBrandPalette.crimsonAccent)
-        .onAppear {
-            store.attachModelContext(modelContext)
-            downloadStore.attachModelContext(modelContext)
-        }
-        .fullScreenCover(isPresented: $store.isTabGridPresented) {
-            TabGridSwitcherView(store: store)
-        }
-        .sheet(isPresented: $store.isQRScannerPresented) {
-            QRCodeScannerSheet { scannedPayload in
-                store.navigate(toInput: scannedPayload)
-            }
-        }
-        .sheet(isPresented: $store.isSiteMenuPresented) {
-            ShieldAndSiteMenuSheet(store: store)
-        }
-        .sheet(isPresented: $store.isBookmarksHistoryPresented) {
-            BookmarksAndHistorySheet { url in
-                store.navigate(to: url)
-            }
-        }
-        .sheet(isPresented: $store.isGoogleSignInPresented) {
-            GoogleSignInSheet(
-                accountManager: store.googleAccount,
-                openAccountManagement: store.openGoogleAccountManagement,
-                onComplete: { message in
-                    store.showToast(message)
-                }
-            )
-        }
-        .sheet(item: $store.activePopupSession) { session in
-            PopupWebViewSheet(session: session) {
-                store.activePopupSession = nil
-                Task {
-                    await store.googleAccount.refreshSessionStatus()
+            .sheet(isPresented: $store.isQRScannerPresented) {
+                QRCodeScannerSheet { scannedPayload in
+                    store.navigate(toInput: scannedPayload)
                 }
             }
-        }
-        .sheet(item: $store.activeReaderArticle) { article in
-            ReaderModeSheet(article: article)
-        }
-        .modifier(BrowserDialogAlertModifier(
-            store: store,
-            promptInputText: $promptInputText,
-            authUsername: $authUsername,
-            authPassword: $authPassword
-        ))
+            .sheet(isPresented: $store.isSiteMenuPresented) {
+                ShieldAndSiteMenuSheet(store: store)
+            }
+            .sheet(isPresented: $store.isBookmarksHistoryPresented) {
+                BookmarksAndHistorySheet { url in
+                    store.navigate(to: url)
+                }
+            }
+            .sheet(isPresented: $store.isGoogleSignInPresented) {
+                GoogleSignInSheet(
+                    accountManager: store.googleAccount,
+                    openAccountManagement: store.openGoogleAccountManagement,
+                    onComplete: { message in
+                        store.showToast(message)
+                    }
+                )
+            }
+            .sheet(item: $store.activePopupSession) { session in
+                PopupWebViewSheet(session: session) {
+                    store.activePopupSession = nil
+                    Task {
+                        await store.googleAccount.refreshSessionStatus()
+                    }
+                }
+            }
+            .sheet(item: $store.activeReaderArticle) { article in
+                ReaderModeSheet(article: article)
+            }
+            .modifier(BrowserDialogAlertModifier(
+                store: store,
+                promptInputText: $promptInputText,
+                authUsername: $authUsername,
+                authPassword: $authPassword
+            ))
     }
 
-    private var browserViewport: some View {
-        ZStack(alignment: .bottom) {
-            PrismBrandPalette.obsidianBackground
+    private func browserViewport(tokens: PrismThemeTokens) -> some View {
+        ZStack {
+            tokens.backgroundTop
                 .ignoresSafeArea()
 
+            // Primary content canvas: Private Lock, Start Page, or WebView
             if store.activeTab.isIncognito && !store.authService.isPrivateUnlocked {
                 VaultLockOverlayView(
                     authService: store.authService,
@@ -146,7 +187,12 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                     subtitle: "Authenticate to resume your Private Incognito session."
                 )
             } else if store.activeTab.urlString.isEmpty {
-                startPageView
+                StartPageView(
+                    store: store,
+                    bookmarks: bookmarks,
+                    onOpenDownloads: { selectedTab = .downloads },
+                    onOpenVault: { selectedTab = .vault }
+                )
             } else {
                 PrismWebViewRepresentable(
                     webView: store.activeWebView(),
@@ -168,172 +214,158 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                 .ignoresSafeArea(edges: .bottom)
             }
 
+            // Floating chrome overlay respecting top & bottom safe areas (Home Indicator + Dynamic Island)
             VStack(spacing: 8) {
-                if let toast = store.statusToastMessage {
-                    Text(toast)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .glassEffect(.regular, in: .capsule)
+                // Top Omnibox mode
+                if isTopBarMode {
+                    if !store.isChromeMinimized || store.isOmniboxExpanded || store.activeTab.urlString.isEmpty {
+                        FloatingOmniboxBar(store: store, isTopMode: true)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    } else {
+                        collapsedRevealPill(tokens: tokens)
+                            .padding(.top, 4)
+                            .transition(.opacity)
+                    }
+                }
+
+                // Translation banner (when active)
+                if store.translationService.isBannerVisible {
+                    translationBanner(tokens: tokens)
+                        .padding(.horizontal, 12)
+                        .padding(.top, isTopBarMode ? 0 : 6)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                Spacer()
+                // Status toast
+                if let toast = store.statusToastMessage {
+                    Text(toast)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tokens.primaryText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .glassEffect(.regular, in: .capsule)
+                        .padding(.top, isTopBarMode ? 0 : 6)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
 
+                Spacer(minLength: 0)
+
+                // Detected media pill (Play / Download)
                 browserOverlayContent()
 
+                // Find in page glass bar
                 if store.findInPageService.isPresented {
-                    findInPageGlassBar
+                    findInPageGlassBar(tokens: tokens)
                         .padding(.horizontal, 12)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
-                if !store.isChromeMinimized || store.isOmniboxExpanded || store.activeTab.urlString.isEmpty {
-                    FloatingOmniboxBar(store: store)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                } else {
-                    collapsedRevealPill
-                        .transition(.opacity)
+                // Floating transfer/audio mini-bar (ONLY when active)
+                if shouldShowTransferMiniBar {
+                    TransferMiniBarView(
+                        downloadStore: downloadStore,
+                        audioCenter: audioCenter,
+                        onOpenDownloads: { selectedTab = .downloads }
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, isTopBarMode ? 12 : 2)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                // Bottom Omnibox mode (default) with ergonomic Home-bar cushion (+12 pt above safe area)
+                if !isTopBarMode {
+                    if !store.isChromeMinimized || store.isOmniboxExpanded || store.activeTab.urlString.isEmpty {
+                        FloatingOmniboxBar(store: store, isTopMode: false)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else {
+                        collapsedRevealPill(tokens: tokens)
+                            .padding(.bottom, 12)
+                            .transition(.opacity)
+                    }
                 }
             }
         }
     }
 
-    private var startPageView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .center) {
-                        HStack(spacing: 8) {
-                            Image(systemName: store.activeTab.isIncognito ? "eye.slash.fill" : "pyramid.fill")
-                                .font(.title2)
-                                .foregroundStyle(store.activeTab.isIncognito ? .purple : PrismBrandPalette.crimsonAccent)
-                            Text(store.activeTab.isIncognito ? "Private Incognito" : "PrismDM")
-                                .font(.largeTitle.weight(.bold))
-                                .foregroundStyle(.white)
-                        }
-                        Spacer()
+    private func translationBanner(tokens: PrismThemeTokens) -> some View {
+        let svc = store.translationService
+        return HStack(spacing: 8) {
+            if svc.isTranslating {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(tokens.accent)
+            } else {
+                Image(systemName: "translate")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(tokens.accent)
+            }
 
-                        if !store.activeTab.isIncognito {
-                            Button {
-                                store.presentGoogleSignIn(manageAccount: store.googleAccount.isSignedIn)
-                            } label: {
-                                if store.googleAccount.isSignedIn, let profile = store.googleAccount.profile {
-                                    HStack(spacing: 6) {
-                                        Text(profile.initials)
-                                            .font(.caption.weight(.bold))
-                                            .foregroundStyle(.white)
-                                            .frame(width: 26, height: 26)
-                                            .background(PrismBrandPalette.crimsonAccent, in: .circle)
-                                        Text("Google")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.white)
-                                    }
-                                    .padding(.leading, 4)
-                                    .padding(.trailing, 10)
-                                    .padding(.vertical, 4)
-                                    .glassEffect(.regular.interactive(), in: .capsule)
-                                } else {
-                                    Label("Sign In", systemImage: "person.crop.circle")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .glassEffect(.regular.interactive(), in: .capsule)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    Text(store.activeTab.isIncognito
-                        ? "Non-persistent cookies, zero history saved, biometric-protected."
-                        : (store.globalAdBlockEnabled
-                            ? "Shield active • \(store.adBlockCompiler.totalActiveRules > 0 ? "\(store.adBlockCompiler.totalActiveRules) offline rules" : AdBlockManifestLoader.summary())"
-                            : "AdBlock paused • Configure protection in Settings"))
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.68))
-                }
-                .padding(.top, 24)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(svc.statusMessage ?? "Translate to \(svc.selectedTarget.displayName)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tokens.primaryText)
+                    .lineLimit(1)
+            }
 
-                if !bookmarks.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
+            Spacer(minLength: 4)
+
+            Menu {
+                ForEach(TranslationTargetLanguage.supported) { lang in
+                    Button {
+                        store.translateActivePage(target: lang)
+                    } label: {
                         HStack {
-                            Text("Bookmarks")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                            Spacer()
-                            Button("All") {
-                                store.isBookmarksHistoryPresented = true
-                            }
-                            .font(.caption.weight(.semibold))
-                        }
-
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                            ForEach(bookmarks.prefix(6)) { bookmark in
-                                Button {
-                                    if let url = URL(string: bookmark.urlString) {
-                                        store.navigate(to: url)
-                                    }
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(bookmark.title)
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(.white)
-                                            .lineLimit(1)
-                                        Text(URL(string: bookmark.urlString)?.host ?? bookmark.urlString)
-                                            .font(.caption2)
-                                            .foregroundStyle(.white.opacity(0.62))
-                                            .lineLimit(1)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(12)
-                                    .background(
-                                        ConcentricRectangle(corners: .concentric(minimum: 12), isUniform: true)
-                                            .fill(PrismBrandPalette.obsidianElevated)
-                                    )
-                                }
-                                .buttonStyle(.plain)
+                            Text(lang.displayName)
+                            if lang == svc.selectedTarget {
+                                Image(systemName: "checkmark")
                             }
                         }
-                        .containerShape(.rect(cornerRadius: 18))
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Quick Actions")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-
-                    HStack(spacing: 10) {
-                        Button {
-                            store.isQRScannerPresented = true
-                        } label: {
-                            Label("Scan QR", systemImage: "qrcode.viewfinder")
-                                .font(.subheadline.weight(.semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
-                        }
-                        .buttonStyle(.glass)
-
-                        Button {
-                            store.isBookmarksHistoryPresented = true
-                        } label: {
-                            Label("Library", systemImage: "books.vertical.fill")
-                                .font(.subheadline.weight(.semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
-                        }
-                        .buttonStyle(.glass)
-                    }
-                }
+            } label: {
+                Text(svc.selectedTarget.code.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(tokens.accentText)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(tokens.accent, in: Capsule())
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 120)
+
+            if svc.isShowingTranslated {
+                Button("Original") {
+                    store.restoreOriginalActivePage()
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(tokens.primaryText)
+                .buttonStyle(.borderless)
+            } else if svc.showGoogleFallbackOffer {
+                Button("Google") {
+                    store.openGoogleTranslateFallback()
+                }
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(tokens.accent)
+                .buttonStyle(.borderless)
+            }
+
+            Button {
+                svc.dismissBanner()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(tokens.secondaryText)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Dismiss Translation Banner")
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(tokens.cardSurface, in: Capsule())
+        .overlay(Capsule().strokeBorder(tokens.glassStroke, lineWidth: 1))
     }
 
-    private var collapsedRevealPill: some View {
+    private func collapsedRevealPill(tokens: PrismThemeTokens) -> some View {
         Button {
             withAnimation(.snappy) {
                 store.isChromeMinimized = false
@@ -346,23 +378,22 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(tokens.primaryText)
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
             .glassEffect(.regular.interactive(), in: .capsule)
         }
         .buttonStyle(.plain)
-        .padding(.bottom, 6)
     }
 
-    private var findInPageGlassBar: some View {
+    private func findInPageGlassBar(tokens: PrismThemeTokens) -> some View {
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 8) {
                 TextField("Find on page", text: $store.findInPageService.query)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.search)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(tokens.primaryText)
                     .onSubmit {
                         Task {
                             await store.findInPageService.findNext(
@@ -381,8 +412,10 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                     }
                 } label: {
                     Image(systemName: "chevron.up")
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
 
                 Button {
                     Task {
@@ -393,20 +426,24 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                     }
                 } label: {
                     Image(systemName: "chevron.down")
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
 
                 Button {
                     store.findInPageService.dismiss()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
+                        .frame(width: 30, height: 30)
+                        .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(tokens.primaryText)
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .padding(.vertical, 8)
+            .glassEffect(.regular, in: .capsule)
         }
     }
 }

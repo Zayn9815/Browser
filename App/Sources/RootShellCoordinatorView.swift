@@ -35,9 +35,15 @@ public struct RootShellCoordinatorView: View {
                 presentLocalMediaInPlayer(fileURL: fileURL, title: title)
             },
             downloadsTabContent: {
-                DownloadsTabView(store: downloadStore) { fileURL, title in
-                    presentLocalMediaInPlayer(fileURL: fileURL, title: title)
-                }
+                DownloadsTabView(
+                    store: downloadStore,
+                    onPlayCompletedMedia: { fileURL, title in
+                        presentLocalMediaInPlayer(fileURL: fileURL, title: title)
+                    },
+                    onDismiss: {
+                        selectedTab = .browser
+                    }
+                )
             },
             browserOverlayContent: {
                 if let detected = browserStore.mediaInterceptor.activeCandidate(for: browserStore.activeTabID) {

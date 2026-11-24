@@ -113,10 +113,18 @@ index 9c1563f..5d2f93e 100644
          cookies.filter { $0.expirationDate.map { $0 > Date.now.timeIntervalSince1970 } ?? true }
              .map(\.netscapeLine).joined(separator: "\n")
 diff --git a/Packages/SDMCore/Sources/SDMEngine/Engine.cpp b/Packages/SDMCore/Sources/SDMEngine/Engine.cpp
-index e1d5185..d84b049 100644
+index e1d5185..697cff9 100644
 --- a/Packages/SDMCore/Sources/SDMEngine/Engine.cpp
 +++ b/Packages/SDMCore/Sources/SDMEngine/Engine.cpp
-@@ -964,6 +964,18 @@ private:
+@@ -283,6 +283,7 @@ public:
+         int file_descriptor = -1;
+         std::unordered_set<CURL *> active_handles;
+         bool accepts_ranges = false;
++        bool attempted_range_probe = false;
+         std::vector<Segment> segments;
+         std::string etag;
+         std::string last_modified;
+@@ -964,6 +965,18 @@ private:
              if (!task.request.referrer.empty()) {
                  curl_easy_setopt(transfer->easy, CURLOPT_REFERER, task.request.referrer.c_str());
              }
@@ -135,7 +143,7 @@ index e1d5185..d84b049 100644
              if (lowercase(task.request.url.substr(0, 8)) == "https://") {
                  curl_easy_setopt(transfer->easy, CURLOPT_REDIR_PROTOCOLS_STR, "https");
              }
-@@ -1373,32 +1385,57 @@ private:
+@@ -1373,32 +1386,57 @@ private:
              const auto range = iterator == transfer.headers.end()
                  ? std::nullopt
                  : parse_content_range(iterator->second);

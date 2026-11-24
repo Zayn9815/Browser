@@ -3,6 +3,7 @@ import Foundation
 import MediaInterceptor
 import Observation
 import ParallelDownloader
+import PrismCore
 import SwiftData
 import UIKit
 import VaultManager
@@ -53,6 +54,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
     public var isTabGridPresented: Bool = false
     public var isQRScannerPresented: Bool = false
     public var isSiteMenuPresented: Bool = false
+    public var isBrowserMenuPresented: Bool = false
     public var isBookmarksHistoryPresented: Bool = false
     public var isGoogleSignInPresented: Bool = false
     public var openGoogleAccountManagement: Bool = false
@@ -70,6 +72,8 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
     public var findInPageService: FindInPageService
     public let authService: BiometricAuthService
     public let googleAccount: GoogleAccountManager
+    public let shortcutStore: StartPageShortcutStore
+    public let translationService: PageTranslationService
 
     public weak var downloadCoordinator: (any ParallelDownloadCoordinating)?
     public var onDownloadEnqueuedToast: ((String) -> Void)?
@@ -93,6 +97,8 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
         self.settings = loadedSettings
         self.adBlockCompiler = adBlockCompiler
         self.googleAccount = googleAccount
+        self.shortcutStore = StartPageShortcutStore()
+        self.translationService = PageTranslationService()
         let monitor = TrackerShieldMonitor()
         self.trackerMonitor = monitor
         let interceptor = MediaInterceptorCoordinator()
@@ -103,6 +109,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
             adBlockCompiler: adBlockCompiler,
             trackerMonitor: monitor
         )
+        pool.applyTopContentInset(loadedSettings.searchBarPosition == .top ? 64 : 0)
         pool.configureAdditionalScripts = { [weak interceptor] controller, tabID in
             interceptor?.attach(to: controller, tabID: tabID)
         }
@@ -312,9 +319,25 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
             omniboxText = tabs[idx].urlString
         }
         webViewPool.suspendBackgroundMedia(except: tabID)
+        translationService.dismissBanner()
         isChromeMinimized = false
         isTabGridPresented = false
         persistNormalTabs()
+    }
+
+    @discardableResult
+    public func selectAdjacentTab(delta: Int) -> Bool {
+        let sameModeTabs = tabs.filter { $0.isIncognito == activeTab.isIncognito }
+        guard sameModeTabs.count > 1,
+              let currentPos = sameModeTabs.firstIndex(where: { $0.id == activeTabID }) else {
+            return false
+        }
+        let targetPos = currentPos + delta
+        guard sameModeTabs.indices.contains(targetPos) else {
+            return false
+        }
+        selectTab(sameModeTabs[targetPos].id)
+        return true
     }
 
     public func closeTab(_ tabID: UUID) {
@@ -538,6 +561,42 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
     public func setPrivacyCurtainEnabled(_ enabled: Bool) {
         settings.privacyCurtainEnabled = enabled
         settings.save()
+    }
+
+    public func setSearchBarPosition(_ position: SearchBarPosition) {
+        settings.searchBarPosition = position
+        settings.save()
+        webViewPool.applyTopContentInset(position == .top ? 64 : 0)
+        isChromeMinimized = false
+    }
+
+    public func setYouTubeAdShieldEnabled(_ enabled: Bool) {
+        settings.youTubeAdShieldEnabled = enabled
+        settings.save()
+        reapplyAdBlockToAllLiveTabs(reloadActive: true)
+    }
+
+    public func translateActivePage(target: TranslationTargetLanguage? = nil) {
+        guard activeTab.currentURL != nil,
+              let webView = webViewPool.existingWebView(for: activeTabID) else {
+            showToast("Open a webpage first to translate.")
+            return
+        }
+        translationService.beginTranslation(in: webView, target: target)
+    }
+
+    public func restoreOriginalActivePage() {
+        translationService.restoreOriginal()
+    }
+
+    public func openGoogleTranslateFallback() {
+        guard let url = activeTab.currentURL,
+              let fallback = translationService.googleTranslateURL(for: url) else {
+            showToast("No webpage available to translate.")
+            return
+        }
+        translationService.dismissBanner()
+        navigate(to: fallback)
     }
 
     public func addAllowlistedHost(_ rawHost: String) {
@@ -771,6 +830,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
         if let idx = tabs.firstIndex(where: { $0.id == tabID }) {
             tabs[idx].isLoading = false
         }
+        PrismLogCenter.record(.error, category: .browser, "Navigation failed: \(error.localizedDescription)")
         showToast(error.localizedDescription)
     }
 
@@ -825,12 +885,14 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
                 self?.showToast("Downloading \(filename)…")
                 self?.onDownloadEnqueuedToast?(filename)
             } catch {
+                PrismLogCenter.record(.error, category: .browser, "Download handoff failed: \(error.localizedDescription)")
                 self?.showToast("Download failed: \(error.localizedDescription)")
             }
         }
     }
 
     public func navigationDidRecoverFromContentProcessTermination(tabID: UUID) {
+        PrismLogCenter.record(.warning, category: .browser, "WebKit content process terminated; recovering tab")
         showToast("Recovered webpage after WebKit process restart.")
     }
 

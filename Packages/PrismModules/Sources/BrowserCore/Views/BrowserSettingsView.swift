@@ -11,12 +11,18 @@ import WebKit
 public struct BrowserSettingsView: View {
     @Bindable public var store: BrowserStore
     @Bindable public var downloadStore: ParallelDownloadStore
+    private let onDismiss: (() -> Void)?
 
     @State private var showSignOutConfirm = false
 
-    public init(store: BrowserStore, downloadStore: ParallelDownloadStore) {
+    public init(
+        store: BrowserStore,
+        downloadStore: ParallelDownloadStore,
+        onDismiss: (() -> Void)? = nil
+    ) {
         self.store = store
         self.downloadStore = downloadStore
+        self.onDismiss = onDismiss
     }
 
     public var body: some View {
@@ -109,6 +115,14 @@ public struct BrowserSettingsView: View {
             }
             .contentMargins(.bottom, 100, for: .scrollContent)
             .navigationTitle("Settings")
+            .toolbar {
+                if let onDismiss {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { onDismiss() }
+                            .fontWeight(.semibold)
+                    }
+                }
+            }
             .onAppear {
                 Task {
                     await store.googleAccount.refreshSessionStatus()

@@ -15,6 +15,7 @@ public struct VaultBrowserView: View {
     @Bindable private var authService: BiometricAuthService
     @Bindable private var audioCenter: BackgroundAudioCenter
     private let onPlayMediaFile: ((URL, String) -> Void)?
+    private let onDismiss: (() -> Void)?
 
     @State private var isPrivateMode = false
     @State private var currentRelativePath = ""
@@ -43,12 +44,14 @@ public struct VaultBrowserView: View {
         fileService: VaultFileService = .shared,
         authService: BiometricAuthService = .shared,
         audioCenter: BackgroundAudioCenter = .shared,
-        onPlayMediaFile: ((URL, String) -> Void)? = nil
+        onPlayMediaFile: ((URL, String) -> Void)? = nil,
+        onDismiss: (() -> Void)? = nil
     ) {
         self.fileService = fileService
         self.authService = authService
         self.audioCenter = audioCenter
         self.onPlayMediaFile = onPlayMediaFile
+        self.onDismiss = onDismiss
     }
 
     private var filteredEntries: [VaultEntryItem] {
@@ -109,6 +112,11 @@ public struct VaultBrowserView: View {
                         } label: {
                             Label("Lock", systemImage: "lock.fill")
                         }
+                    } else if let onDismiss {
+                        Button("Done") {
+                            onDismiss()
+                        }
+                        .fontWeight(.semibold)
                     }
                 }
 

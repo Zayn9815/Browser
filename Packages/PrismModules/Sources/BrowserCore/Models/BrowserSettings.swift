@@ -1,15 +1,31 @@
 import Foundation
 
+public enum SearchBarPosition: String, Codable, Sendable, CaseIterable, Identifiable {
+    case bottom
+    case top
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .bottom: return "Bottom"
+        case .top: return "Top"
+        }
+    }
+}
+
 public struct BrowserSettingsSnapshot: Codable, Sendable, Equatable {
     // Shield & Protection
     public var blockAdsEasyList: Bool = true
     public var blockTrackersEasyPrivacy: Bool = true
+    public var youTubeAdShieldEnabled: Bool = true
     public var blockPopups: Bool = true
     public var httpsOnlyEnabled: Bool = false
     public var stripTrackingParameters: Bool = true
     public var blockJavaScript: Bool = false
 
     // Appearance & Browsing
+    public var searchBarPosition: SearchBarPosition = .bottom
     public var defaultPageZoom: Double = 1.0
     public var defaultRequestDesktopSite: Bool = false
     public var autoHideToolbarOnScroll: Bool = true
