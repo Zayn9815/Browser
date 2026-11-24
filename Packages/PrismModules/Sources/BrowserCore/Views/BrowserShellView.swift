@@ -77,14 +77,8 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                         await translationService.finishWithNoTextFound()
                         return
                     }
-                    let requests = segments.map {
-                        TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
-                    }
-                    let responses = try await session.translations(from: requests)
-                    let translated = responses.compactMap { resp -> DOMTextSegment? in
-                        guard let id = resp.clientIdentifier else { return nil }
-                        return DOMTextSegment(id: id, text: resp.targetText)
-                    }
+                    let box = UncheckedTranslationSessionBox(session)
+                    let translated = try await PageTranslationService.translateSegments(segments, using: box)
                     try await translationService.applyTranslatedSegments(translated)
                 } catch {
                     await translationService.handleTranslationError(error)

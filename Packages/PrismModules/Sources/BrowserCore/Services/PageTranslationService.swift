@@ -38,6 +38,14 @@ public struct DOMTextSegment: Codable, Sendable {
     }
 }
 
+public struct UncheckedTranslationSessionBox: @unchecked Sendable {
+    public let session: TranslationSession
+
+    public init(_ session: TranslationSession) {
+        self.session = session
+    }
+}
+
 /// Manages Apple's native on-device `Translation` framework (`TranslationSession`) in-place DOM translation
 /// with instant revert-to-original and one-tap Google Translate web fallback.
 @Observable
