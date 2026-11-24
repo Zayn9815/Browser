@@ -88,11 +88,12 @@ public actor FFmpegHLSMuxerWorker {
     ) -> AsyncStream<HLSMuxProgressEvent> {
         let cancelFlag = MuxInterruptFlag()
         interruptFlags[taskID] = cancelFlag
+        let worker = self
 
         return AsyncStream(bufferingPolicy: .bufferingNewest(8)) { continuation in
-            let work = Task.detached(priority: .utility) { [weak self] in
+            let work = Task.detached(priority: .utility) {
                 defer {
-                    Task { await self?.clearFlag(for: taskID) }
+                    Task { await worker.clearFlag(for: taskID) }
                     continuation.finish()
                 }
 
