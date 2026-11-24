@@ -272,7 +272,7 @@ public struct DiagnosticsLogsView: View {
                             Task {
                                 let reportText = await crashManager.loadFormattedAppleReport(
                                     reportID: summary.id,
-                                    activeDownloader: downloadStore.defaultDownloaderMode.displayName,
+                                    activeDownloader: downloadStore.defaultDownloaderMode.displayTitle,
                                     activeTheme: themeEngine.selectedTheme.displayName
                                 )
                                 loadedCrashReportText = reportText
@@ -321,7 +321,7 @@ public struct DiagnosticsLogsView: View {
         allEntries = await PrismLogCenter.shared.allEntries()
         let exportText = PrismLogCenter.formatForAntigravity(
             entries: filteredLogs,
-            activeDownloader: downloadStore.defaultDownloaderMode.displayName,
+            activeDownloader: downloadStore.defaultDownloaderMode.displayTitle,
             activeTheme: themeEngine.selectedTheme.displayName
         )
         exportedShareURL = writeTempExportFile(text: exportText, filename: "PrismDM_Diagnostics.log")
@@ -330,7 +330,7 @@ public struct DiagnosticsLogsView: View {
     private func copyLogsForAntigravity() async {
         let text = PrismLogCenter.formatForAntigravity(
             entries: filteredLogs,
-            activeDownloader: downloadStore.defaultDownloaderMode.displayName,
+            activeDownloader: downloadStore.defaultDownloaderMode.displayTitle,
             activeTheme: themeEngine.selectedTheme.displayName
         )
         UIPasteboard.general.string = text

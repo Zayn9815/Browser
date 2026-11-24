@@ -26,17 +26,17 @@ public struct ThemesAndAppearanceSettingsView: View {
             // 1. Themes (all 7 palettes with dual-dot swatches)
             Section {
                 ForEach(PrismThemeID.allCases) { themeID in
-                    let previewTokens = PrismThemeTokens.palette(for: themeID)
+                    let previewTokens = themeID.tokens
                     let isSelected = themeEngine.selectedTheme == themeID
                     Button {
                         withAnimation(.snappy(duration: 0.24)) {
-                            themeEngine.selectTheme(themeID)
+                            themeEngine.selectedTheme = themeID
                         }
                     } label: {
                         HStack(spacing: 12) {
                             dualSwatchDots(
-                                primary: previewTokens.swatchPrimary,
-                                secondary: previewTokens.swatchSecondary,
+                                primary: previewTokens.swatchBackground,
+                                secondary: previewTokens.accent,
                                 stroke: previewTokens.hairline
                             )
 
@@ -119,7 +119,7 @@ public struct ThemesAndAppearanceSettingsView: View {
                     Task {
                         if let data = try? await item.loadTransferable(type: Data.self) {
                             await MainActor.run {
-                                themeEngine.saveCustomWallpaper(from: data)
+                                _ = themeEngine.saveCustomWallpaperData(data)
                                 selectedWallpaperPhoto = nil
                             }
                         }
@@ -141,11 +141,11 @@ public struct ThemesAndAppearanceSettingsView: View {
             Section {
                 LazyVGrid(columns: iconColumns, spacing: 14) {
                     ForEach(PrismAlternateAppIcon.allCases) { icon in
-                        let isSelected = themeEngine.selectedAlternateIcon == icon
+                        let isSelected = themeEngine.activeAppIcon == icon
                         Button {
                             Task {
-                                let err = await themeEngine.selectAlternateIcon(icon)
-                                if let err {
+                                await themeEngine.applyAlternateAppIcon(icon)
+                                if let err = themeEngine.iconChangeError {
                                     iconStatusMessage = err
                                 } else {
                                     iconStatusMessage = "App icon updated to \(icon.displayName)."
@@ -162,12 +162,12 @@ public struct ThemesAndAppearanceSettingsView: View {
                                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                                     } else {
                                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                            .fill(PrismThemeTokens.palette(for: icon.matchingTheme).accent.gradient)
+                                            .fill(icon.previewBackground)
                                             .frame(width: 60, height: 60)
                                             .overlay(
                                                 Image(systemName: "pyramid.fill")
                                                     .font(.title2)
-                                                    .foregroundStyle(.white)
+                                                    .foregroundStyle(icon.previewAccent)
                                             )
                                     }
 
@@ -230,11 +230,14 @@ public struct ThemesAndAppearanceSettingsView: View {
 
     private func wallpaperCard(option: PrismWallpaperOption, tokens: PrismThemeTokens) -> some View {
         let isSelected = themeEngine.selectedWallpaper == option
+        let gradientColors = option == .matchActiveTheme
+            ? [tokens.canvasTop, tokens.canvasMid, tokens.accent.opacity(0.65)]
+            : option.previewColors
         return Button {
-            themeEngine.selectWallpaper(option)
+            themeEngine.selectedWallpaper = option
         } label: {
             VStack(spacing: 6) {
-                wallpaperGradientPreview(option: option, tokens: tokens)
+                LinearGradient(colors: gradientColors, startPoint: .topLeading, endPoint: .bottomTrailing)
                     .frame(width: 78, height: 108)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
@@ -258,26 +261,5 @@ public struct ThemesAndAppearanceSettingsView: View {
             .frame(width: 82)
         }
         .buttonStyle(.borderless)
-    }
-
-    private func wallpaperGradientPreview(option: PrismWallpaperOption, tokens: PrismThemeTokens) -> some View {
-        let colors: [Color]
-        switch option {
-        case .themeAmbient:
-            colors = [tokens.backgroundTop, tokens.backgroundBottom, tokens.accent.opacity(0.55)]
-        case .crimsonPrism:
-            colors = [Color.prismHex("1A050A"), Color.prismHex("4A1020"), Color.prismHex("FF2D55").opacity(0.6)]
-        case .midnightGlacier:
-            colors = [Color.prismHex("091524"), Color.prismHex("1F4D62"), Color.prismHex("00F5FF").opacity(0.5)]
-        case .obsidianCarbon:
-            colors = [Color.prismHex("090B0E"), Color.prismHex("1A2029"), Color.prismHex("32D74B").opacity(0.45)]
-        case .desertDusk:
-            colors = [Color.prismHex("1A120B"), Color.prismHex("3D2918"), Color.prismHex("E5A952").opacity(0.55)]
-        case .minimalFrost:
-            colors = [Color.prismHex("F5F7FA"), Color.prismHex("E2E8F0"), Color.prismHex("007AFF").opacity(0.25)]
-        case .customPhoto:
-            colors = [tokens.backgroundTop, tokens.backgroundBottom]
-        }
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 }

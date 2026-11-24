@@ -176,7 +176,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
 
     private func browserViewport(tokens: PrismThemeTokens) -> some View {
         ZStack {
-            tokens.backgroundTop
+            tokens.canvasBackground
                 .ignoresSafeArea()
 
             // Primary content canvas: Private Lock, Start Page, or WebView

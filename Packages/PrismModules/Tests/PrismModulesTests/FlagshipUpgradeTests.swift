@@ -100,10 +100,10 @@ struct FlagshipUpgradeTests {
         #expect(PrismThemeID.allCases.count == 7)
         #expect(PrismAlternateAppIcon.allCases.count == 7)
         #expect(PrismThemeID.crimsonLiquidGlass.displayName == "Crimson Liquid Glass")
-        #expect(PrismThemeTokens.palette(for: .frostLight).colorScheme == .light)
-        #expect(PrismThemeTokens.palette(for: .crimsonLiquidGlass).colorScheme == .dark)
-        #expect(PrismAlternateAppIcon.crimsonLiquidGlass.alternateIconName == nil)
-        #expect(PrismAlternateAppIcon.glacierLiquidGlass.alternateIconName == "AppIcon-Glacier")
+        #expect(PrismThemeID.frostLight.tokens.preferredColorScheme == .light)
+        #expect(PrismThemeID.crimsonLiquidGlass.tokens.preferredColorScheme == .dark)
+        #expect(PrismAlternateAppIcon.crimsonDefault.alternateIconName == nil)
+        #expect(PrismAlternateAppIcon.glacier.alternateIconName == "AppIcon-Glacier")
     }
 
     @Test("StartPageShortcut ships 8 defaults with valid URLs and monograms")

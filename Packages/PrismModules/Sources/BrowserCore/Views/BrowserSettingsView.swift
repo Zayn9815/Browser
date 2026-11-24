@@ -569,7 +569,7 @@ private struct DownloadsSettingsView: View {
             Section {
                 Picker("Default Downloader", selection: $downloadStore.defaultDownloaderMode) {
                     ForEach(PrismDefaultDownloaderMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
+                        Text(mode.displayTitle).tag(mode)
                     }
                 }
 

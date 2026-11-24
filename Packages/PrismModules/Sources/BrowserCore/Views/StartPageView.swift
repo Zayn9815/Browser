@@ -412,7 +412,7 @@ public struct StartPageView: View {
                         )
                         .overlay(
                             ConcentricRectangle(corners: .concentric(minimum: 12), isUniform: true)
-                                .strokeBorder(tokens.hairline, lineWidth: 1)
+                                .stroke(tokens.hairline, lineWidth: 1)
                         )
                     }
                     .buttonStyle(.borderless)
