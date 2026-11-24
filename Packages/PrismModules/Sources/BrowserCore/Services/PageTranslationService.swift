@@ -75,28 +75,18 @@ public final class PageTranslationService {
         }
     }
 
-    public func runTranslationSession(_ session: TranslationSession) async {
-        guard let webView = targetWebView else {
-            isTranslating = false
-            return
-        }
-
+    public nonisolated func runTranslationSession(_ session: TranslationSession) async {
         do {
-            let rawJSON: Any? = try await webView.evaluateJavaScript(
-                "typeof window.__prismCollectTranslatableSegments === 'function' ? window.__prismCollectTranslatableSegments(240) : '[]'",
-                in: nil,
-                in: .defaultClient
-            )
-            guard let jsonString = rawJSON as? String,
-                  let data = jsonString.data(using: .utf8),
-                  let segments = try? JSONDecoder().decode([DOMTextSegment].self, from: data),
-                  !segments.isEmpty else {
-                isTranslating = false
-                statusMessage = "No translatable text found on this page."
+            let extractedSegments = try await collectSegments()
+            guard !extractedSegments.isEmpty else {
+                await MainActor.run {
+                    self.isTranslating = false
+                    self.statusMessage = "No translatable text found on this page."
+                }
                 return
             }
 
-            let requests = segments.map {
+            let requests = extractedSegments.map {
                 TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
             }
             let responses = try await session.translations(from: requests)
@@ -105,31 +95,51 @@ public final class PageTranslationService {
                 return DOMTextSegment(id: id, text: resp.targetText)
             }
 
-            let encodedData = try JSONEncoder().encode(translatedSegments)
-            guard let encodedJSON = String(data: encodedData, encoding: .utf8) else {
-                isTranslating = false
-                return
+            try await applyTranslatedSegments(translatedSegments)
+
+            await MainActor.run {
+                self.isTranslating = false
+                self.isShowingTranslated = true
+                self.showGoogleFallbackOffer = false
+                self.statusMessage = "Translated to \(self.selectedTarget.displayName)"
+                PrismLogCenter.record(.info, category: .browser, "Translated \(translatedSegments.count) DOM segments to \(self.selectedTarget.code).")
             }
-
-            let jsPayloadData = try JSONSerialization.data(withJSONObject: [encodedJSON], options: [])
-            let jsArrayLiteral = String(data: jsPayloadData, encoding: .utf8) ?? "[]"
-            _ = try await webView.evaluateJavaScript(
-                "if (typeof window.__prismApplyTranslatedSegments === 'function') { window.__prismApplyTranslatedSegments((\(jsArrayLiteral))[0]); }",
-                in: nil,
-                in: .defaultClient
-            )
-
-            isTranslating = false
-            isShowingTranslated = true
-            showGoogleFallbackOffer = false
-            statusMessage = "Translated to \(selectedTarget.displayName)"
-            PrismLogCenter.record(.info, category: .browser, "Translated \(translatedSegments.count) DOM segments to \(selectedTarget.code).")
         } catch {
-            isTranslating = false
-            showGoogleFallbackOffer = true
-            statusMessage = "On-device pack unavailable. Tap Google Translate fallback."
-            PrismLogCenter.record(.warning, category: .browser, "On-device translation failed: \(error.localizedDescription)")
+            await MainActor.run {
+                self.isTranslating = false
+                self.showGoogleFallbackOffer = true
+                self.statusMessage = "On-device pack unavailable. Tap Google Translate fallback."
+                PrismLogCenter.record(.warning, category: .browser, "On-device translation failed: \(error.localizedDescription)")
+            }
         }
+    }
+
+    private func collectSegments() async throws -> [DOMTextSegment] {
+        guard let webView = targetWebView else { return [] }
+        let rawJSON: Any? = try await webView.evaluateJavaScript(
+            "typeof window.__prismCollectTranslatableSegments === 'function' ? window.__prismCollectTranslatableSegments(240) : '[]'",
+            in: nil,
+            in: .defaultClient
+        )
+        guard let jsonString = rawJSON as? String,
+              let data = jsonString.data(using: .utf8),
+              let segments = try? JSONDecoder().decode([DOMTextSegment].self, from: data) else {
+            return []
+        }
+        return segments
+    }
+
+    private func applyTranslatedSegments(_ translatedSegments: [DOMTextSegment]) async throws {
+        guard let webView = targetWebView else { return }
+        let encodedData = try JSONEncoder().encode(translatedSegments)
+        guard let encodedJSON = String(data: encodedData, encoding: .utf8) else { return }
+        let jsPayloadData = try JSONSerialization.data(withJSONObject: [encodedJSON], options: [])
+        let jsArrayLiteral = String(data: jsPayloadData, encoding: .utf8) ?? "[]"
+        _ = try await webView.evaluateJavaScript(
+            "if (typeof window.__prismApplyTranslatedSegments === 'function') { window.__prismApplyTranslatedSegments((\(jsArrayLiteral))[0]); }",
+            in: nil,
+            in: .defaultClient
+        )
     }
 
     public func restoreOriginal() {
