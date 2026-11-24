@@ -170,6 +170,13 @@ public final class AdBlockRuleCompiler: AdBlockRuleProviding {
         }
     }
 
+    public static func loadYouTubeAdShieldScript() -> String? {
+        guard let url = Bundle.module.url(forResource: "YouTubeAdShield.user", withExtension: "js") else {
+            return nil
+        }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
     // MARK: - Private Compilation & Disk Caching
 
     private func compileOrLookupBaseShards() async throws -> [(sourceList: String, list: WKContentRuleList)] {

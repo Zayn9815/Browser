@@ -262,6 +262,79 @@ public actor VaultFileService: VaultManaging {
         return destinationURL
     }
 
+    /// Streams/copies an externally picked file (from iOS Files or PhotosPicker FileRepresentation)
+    /// into the target vault folder with disk-space preflight and Private Vault backup exclusion.
+    @discardableResult
+    public func importExternalFile(
+        from sourceURL: URL,
+        preferredFilename: String? = nil,
+        intoFolderRelativePath folderPath: String = "",
+        isPrivate: Bool,
+        deleteSourceIfTemporary: Bool = false
+    ) throws -> URL {
+        let root = try vaultRootURL(isPrivate: isPrivate)
+        let destinationFolder = try resolveSubpath(folderPath, inside: root)
+        let fileSize = (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        try assertSufficientDiskSpace(requiredBytes: fileSize, safetyMarginBytes: 32 * 1024 * 1024)
+
+        let name = (preferredFilename?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+            ?? sourceURL.lastPathComponent
+        var destinationURL = uniqueDestinationURL(in: destinationFolder, preferredFilename: name)
+
+        if deleteSourceIfTemporary {
+            try coordinateCopyOrMove(from: sourceURL, to: destinationURL)
+        } else {
+            let coordinator = NSFileCoordinator()
+            var coordError: NSError?
+            var copyError: Error?
+            coordinator.coordinate(
+                readingItemAt: sourceURL,
+                options: [],
+                writingItemAt: destinationURL,
+                options: .forReplacing,
+                error: &coordError
+            ) { actualSrc, actualDst in
+                do {
+                    try FileManager.default.copyItem(at: actualSrc, to: actualDst)
+                } catch {
+                    copyError = error
+                }
+            }
+            if let coordError { throw VaultFileError.coordinationFailed(coordError.localizedDescription) }
+            if let copyError { throw copyError }
+        }
+
+        var rv = URLResourceValues()
+        rv.isExcludedFromBackup = isPrivate
+        try? destinationURL.setResourceValues(rv)
+        return destinationURL
+    }
+
+    /// Atomically moves a file or folder between Files Vault (`Documents/Vault`) and Private Vault (`ApplicationSupport/PrivateVault`).
+    @discardableResult
+    public func moveAcrossVaults(
+        relativePath: String,
+        fromPrivate: Bool,
+        toPrivate: Bool,
+        destinationFolderRelativePath: String = ""
+    ) throws -> URL {
+        guard fromPrivate != toPrivate else {
+            return try moveItem(relativePath: relativePath, toFolderRelativePath: destinationFolderRelativePath, isPrivate: fromPrivate)
+        }
+        let sourceRoot = try vaultRootURL(isPrivate: fromPrivate)
+        let destinationRoot = try vaultRootURL(isPrivate: toPrivate)
+        let sourceURL = try resolveSubpath(relativePath, inside: sourceRoot)
+        let destinationFolder = try resolveSubpath(destinationFolderRelativePath, inside: destinationRoot)
+        var destinationURL = uniqueDestinationURL(in: destinationFolder, preferredFilename: sourceURL.lastPathComponent)
+
+        try coordinateMove(from: sourceURL, to: destinationURL)
+
+        var rv = URLResourceValues()
+        rv.isExcludedFromBackup = toPrivate
+        try? destinationURL.setResourceValues(rv)
+        return destinationURL
+    }
+
     public func registerCompletedFile(
         at tempOrFinalURL: URL,
         preferredFilename: String,

@@ -573,6 +573,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
     public func setYouTubeAdShieldEnabled(_ enabled: Bool) {
         settings.youTubeAdShieldEnabled = enabled
         settings.save()
+        webViewPool.applyYouTubeAdShieldEnabled(enabled)
         reapplyAdBlockToAllLiveTabs(reloadActive: true)
     }
 

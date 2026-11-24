@@ -303,11 +303,18 @@ public final class WebViewLRUPool {
         }
     }
 
+    public func applyYouTubeAdShieldEnabled(_ enabled: Bool) {
+        let js = "window.__prismYouTubeAdShieldEnabled = \(enabled ? "true" : "false");"
+        for webView in liveWebViews.values {
+            webView.evaluateJavaScript(js, in: nil, in: .page) { _ in }
+        }
+    }
+
     public func applyAdBlockRules(
         to tabID: UUID,
         siteHost: String?,
         allowlistedHosts: Set<String>,
-        enabledSourceLists: Set<String> = ["easylist", "easyprivacy"]
+        enabledSourceLists: Set<String> = ["easylist", "easyprivacy", "youtube_ads"]
     ) {
         guard let webView = liveWebViews[tabID] else { return }
         Task { @MainActor [weak self, weak webView] in
@@ -349,17 +356,29 @@ public final class WebViewLRUPool {
 
         let controller = config.userContentController
 
-        // 1. Dark Mode + Media Interception flags injected atDocumentStart in .page world
+        // 1. Dark Mode + Media Interception + YouTube Ad Shield flags injected atDocumentStart in .page world
         let flagsScript = WKUserScript(
             source: """
             window.__prismInitialDarkMode = \(initialDarkMode ? "true" : "false");
             window.__prismMediaInterceptionEnabled = \(settings.mediaInterceptionEnabled ? "true" : "false");
+            window.__prismYouTubeAdShieldEnabled = \(settings.youTubeAdShieldEnabled ? "true" : "false");
             """,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false,
             in: .page
         )
         controller.addUserScript(flagsScript)
+
+        if let ytShieldSource = AdBlockRuleCompiler.loadYouTubeAdShieldScript() {
+            controller.addUserScript(
+                WKUserScript(
+                    source: ytShieldSource,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false,
+                    in: .page
+                )
+            )
+        }
 
         if let darkURL = Bundle.module.url(forResource: "DarkModeInjector.user", withExtension: "js"),
            let darkSource = try? String(contentsOf: darkURL, encoding: .utf8) {

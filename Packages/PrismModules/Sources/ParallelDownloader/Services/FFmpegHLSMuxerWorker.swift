@@ -546,7 +546,7 @@ public actor FFmpegHLSMuxerWorker {
         connectionLimit: Int,
         isPrivateContext: Bool,
         cancelFlag: MuxInterruptFlag,
-        yieldEvent: @Sendable (HLSMuxProgressEvent) -> Void
+        yieldEvent: @escaping @Sendable (HLSMuxProgressEvent) -> Void
     ) async throws -> UInt64 {
         let sessionConfig = URLSessionConfiguration.ephemeral
         sessionConfig.httpMaximumConnectionsPerHost = max(connectionLimit, 8)

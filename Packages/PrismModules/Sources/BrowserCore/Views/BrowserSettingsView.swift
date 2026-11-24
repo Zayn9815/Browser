@@ -1,6 +1,7 @@
 import AdBlockEngine
 import MediaInterceptor
 import ParallelDownloader
+import PrismCore
 import PrismPlayer
 import SDMCore
 import SwiftData
@@ -13,6 +14,9 @@ public struct BrowserSettingsView: View {
     @Bindable public var downloadStore: ParallelDownloadStore
     private let onDismiss: (() -> Void)?
 
+    @State private var themeEngine = PrismThemeEngine.shared
+    @State private var crashManager = PrismCrashManager.shared
+    @State private var warningErrorCount = 0
     @State private var showSignOutConfirm = false
 
     public init(
@@ -25,17 +29,41 @@ public struct BrowserSettingsView: View {
         self.onDismiss = onDismiss
     }
 
+    private var diagnosticsBadgeSummary: String {
+        let crashes = crashManager.crashCount
+        if crashes > 0 && warningErrorCount > 0 {
+            return "\(crashes) crash • \(warningErrorCount) err"
+        } else if crashes > 0 {
+            return "\(crashes) crash"
+        } else if warningErrorCount > 0 {
+            return "\(warningErrorCount) err"
+        }
+        return "Healthy"
+    }
+
     public var body: some View {
+        let tokens = themeEngine.tokens
         NavigationStack {
             List {
                 googleAccountSection
 
                 Section("Browser") {
                     NavigationLink {
+                        ThemesAndAppearanceSettingsView(store: store)
+                    } label: {
+                        SettingsCategoryRow(
+                            title: "Themes & Appearance",
+                            systemImage: "paintpalette.fill",
+                            badgeColor: tokens.accent,
+                            trailingDetail: themeEngine.selectedTheme.displayName
+                        )
+                    }
+
+                    NavigationLink {
                         GeneralSettingsView(store: store)
                     } label: {
                         SettingsCategoryRow(
-                            title: "General & Appearance",
+                            title: "General & Browsing",
                             systemImage: "safari.fill",
                             badgeColor: .blue,
                             trailingDetail: store.selectedSearchEngine.displayName
@@ -48,7 +76,7 @@ public struct BrowserSettingsView: View {
                         SettingsCategoryRow(
                             title: "Shield & Protection",
                             systemImage: "shield.lefthalf.filled",
-                            badgeColor: PrismBrandPalette.crimsonAccent,
+                            badgeColor: tokens.accent,
                             trailingDetail: store.globalAdBlockEnabled ? "On" : "Off"
                         )
                     }
@@ -84,7 +112,7 @@ public struct BrowserSettingsView: View {
                             title: "Downloads & Engine",
                             systemImage: "arrow.down.circle.fill",
                             badgeColor: .indigo,
-                            trailingDetail: downloadStore.preferredHTTPBackend == .libcurl ? "libcurl" : "URLSession"
+                            trailingDetail: "\(downloadStore.defaultConnectionsPerDownload)x"
                         )
                     }
 
@@ -96,6 +124,17 @@ public struct BrowserSettingsView: View {
                             systemImage: "lock.shield.fill",
                             badgeColor: .green,
                             trailingDetail: store.authService.hasConfiguredPIN ? "PIN Set" : nil
+                        )
+                    }
+
+                    NavigationLink {
+                        DiagnosticsLogsView(downloadStore: downloadStore)
+                    } label: {
+                        SettingsCategoryRow(
+                            title: "Diagnostics & Logs",
+                            systemImage: "waveform.path.ecg.rectangle.fill",
+                            badgeColor: crashManager.crashCount > 0 ? .red : .orange,
+                            trailingDetail: diagnosticsBadgeSummary
                         )
                     }
                 }
@@ -124,8 +163,10 @@ public struct BrowserSettingsView: View {
                 }
             }
             .onAppear {
+                crashManager.refreshSummaries()
                 Task {
                     await store.googleAccount.refreshSessionStatus()
+                    warningErrorCount = await PrismLogCenter.shared.warningAndErrorCount()
                 }
             }
             .confirmationDialog(
@@ -520,11 +561,19 @@ private struct TabsPerformanceSettingsView: View {
 
 private struct DownloadsSettingsView: View {
     @Bindable var downloadStore: ParallelDownloadStore
+    @State private var themeEngine = PrismThemeEngine.shared
 
     var body: some View {
+        let tokens = themeEngine.tokens
         List {
-            Section("Parallel Download Engine (SDMCore)") {
-                Picker("Default HTTP Backend", selection: $downloadStore.preferredHTTPBackend) {
+            Section {
+                Picker("Default Downloader", selection: $downloadStore.defaultDownloaderMode) {
+                    ForEach(PrismDefaultDownloaderMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+
+                Picker("HTTP Engine Backend", selection: $downloadStore.preferredHTTPBackend) {
                     Text("libcurl Multi-Range").tag(DownloadEngineKind.libcurl)
                     Text("iOS Background URLSession").tag(DownloadEngineKind.urlSession)
                 }
@@ -533,6 +582,12 @@ private struct DownloadsSettingsView: View {
                     "Connections per Download: \(downloadStore.defaultConnectionsPerDownload)",
                     value: $downloadStore.defaultConnectionsPerDownload,
                     in: 1...16
+                )
+
+                Stepper(
+                    "Max Concurrent Downloads: \(downloadStore.maxConcurrentDownloads)",
+                    value: $downloadStore.maxConcurrentDownloads,
+                    in: 1...6
                 )
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -553,8 +608,12 @@ private struct DownloadsSettingsView: View {
                         in: 0...50,
                         step: 1
                     )
-                    .tint(PrismBrandPalette.crimsonAccent)
+                    .tint(tokens.accent)
                 }
+            } header: {
+                Text("Parallel Download Engine (SDMCore & HLS)")
+            } footer: {
+                Text("PrismDM Multi-Thread uses parallel byte-range chunks for direct files (with Range:0-0 probing) and concurrent N-worker segment downloading for HLS (.m3u8) streams.")
             }
         }
         .contentMargins(.bottom, 100, for: .scrollContent)
@@ -639,6 +698,7 @@ private struct AboutAndLicensesSettingsView: View {
                 LabeledContent("HLS Remux Core", value: ParallelDownloaderEngineDiagnostics.ffmpegVersionSummary)
                 LabeledContent("Universal Player", value: PrismPlayerEngineDiagnostics.mpvAPIVersionSummary)
                 LabeledContent("Vault Archive", value: VaultEngineDiagnostics.archiveEngineSummary)
+                LabeledContent("Crash Diagnostics", value: PrismCrashManager.diagnosticsVersionSummary)
                 LabeledContent("Media Bridge", value: "Schema v\(MediaInterceptorBridgeInfo.loadSchemaVersion())")
 
                 NavigationLink("Engine & Open Source Licenses") {
@@ -907,13 +967,21 @@ private struct OpenSourceLicensesView: View {
             "Runs isolated in WebKit's .defaultClient world to extract clean Reader Mode articles."
         ),
         (
+            "KSCrash (2.6.1)",
+            "MIT License • Copyright Karl Stenerud",
+            "Provides 100% local offline Mach exception, POSIX signal, C++/NSException, and watchdog crash report capture formatted in Apple symbolicated style for on-device diagnostics."
+        ),
+        (
             "EasyList & EasyPrivacy Filter Packs",
             "GPL-3.0 / CC-BY-SA-3.0",
             "Compiled and sharded at build time into WebKit Content Blocker JSON lists (<= 125,000 rules per shard) for offline ad and tracker blocking."
         ),
     ]
 
+    @State private var themeEngine = PrismThemeEngine.shared
+
     var body: some View {
+        let tokens = themeEngine.tokens
         List {
             ForEach(notices, id: \.title) { item in
                 VStack(alignment: .leading, spacing: 6) {
@@ -921,7 +989,7 @@ private struct OpenSourceLicensesView: View {
                         .font(.headline)
                     Text(item.license)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(PrismBrandPalette.crimsonAccent)
+                        .foregroundStyle(tokens.accent)
                     Text(item.detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)

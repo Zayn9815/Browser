@@ -1,7 +1,9 @@
+import PrismCore
 import SwiftUI
 
 public struct VaultLockOverlayView: View {
     @Bindable private var authService: BiometricAuthService
+    @State private var themeEngine = PrismThemeEngine.shared
     private let title: String
     private let subtitle: String
     private let onUnlocked: (() -> Void)?
@@ -23,29 +25,29 @@ public struct VaultLockOverlayView: View {
     }
 
     public var body: some View {
+        let tokens = themeEngine.tokens
         ZStack {
-            Color(red: 10.0 / 255.0, green: 10.0 / 255.0, blue: 15.0 / 255.0)
-                .ignoresSafeArea()
+            PrismAtmosphericWallpaperView(themeEngine: themeEngine)
 
             VStack(spacing: 22) {
                 Image(systemName: authService.biometryIconName)
                     .font(.system(size: 48, weight: .semibold))
-                    .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                    .foregroundStyle(tokens.accent)
 
                 VStack(spacing: 8) {
                     Text(title)
                         .font(.title2.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(tokens.primaryText)
                     Text(subtitle)
                         .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.72))
+                        .foregroundStyle(tokens.secondaryText)
                         .multilineTextAlignment(.center)
                 }
 
                 if let error = authService.lastErrorMessage, !error.isEmpty {
                     Text(error)
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(tokens.destructive)
                         .multilineTextAlignment(.center)
                 }
 
@@ -65,11 +67,12 @@ public struct VaultLockOverlayView: View {
                         } label: {
                             Text("Unlock with PIN")
                                 .font(.headline)
+                                .foregroundStyle(tokens.accentText)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 6)
                         }
                         .buttonStyle(.glassProminent)
-                        .tint(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                        .tint(tokens.accent)
                     }
                 } else {
                     Button {
@@ -80,12 +83,13 @@ public struct VaultLockOverlayView: View {
                             systemImage: authService.biometryIconName
                         )
                         .font(.headline)
+                        .foregroundStyle(tokens.accentText)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                     }
                     .disabled(isAuthenticating)
                     .buttonStyle(.glassProminent)
-                    .tint(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                    .tint(tokens.accent)
                 }
 
                 if authService.hasConfiguredPIN {
@@ -94,12 +98,17 @@ public struct VaultLockOverlayView: View {
                             showPINPad.toggle()
                         }
                     }
+                    .foregroundStyle(tokens.primaryText)
                     .buttonStyle(.glass)
                 }
             }
             .padding(28)
             .frame(maxWidth: 340)
-            .glassEffect(.regular, in: .rect(cornerRadius: 28))
+            .background(tokens.cardSurface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .strokeBorder(tokens.glassStroke, lineWidth: 1)
+            )
             .padding(.horizontal, 20)
         }
     }

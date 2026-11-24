@@ -500,6 +500,59 @@ do {
         }
     }
 
+    // Emit dedicated Brave/uAssets-aligned YouTube Ad-Free Shield shard (strictly domain-scoped, zero wildcards)
+    let youtubeFilterLines: [String] = [
+        "||doubleclick.net^$domain=youtube.com|m.youtube.com|music.youtube.com|youtube-nocookie.com",
+        "||googleadservices.com^$domain=youtube.com|m.youtube.com|music.youtube.com",
+        "||googlesyndication.com^$domain=youtube.com|m.youtube.com|music.youtube.com",
+        "||youtube.com/pagead/$domain=youtube.com|m.youtube.com|music.youtube.com",
+        "||youtube.com/api/stats/ads$domain=youtube.com|m.youtube.com|music.youtube.com",
+        "||youtube.com/api/stats/atr$domain=youtube.com|m.youtube.com|music.youtube.com",
+        "||youtube.com/ptracking$domain=youtube.com|m.youtube.com|music.youtube.com",
+        "||youtube.com/get_midroll_info$domain=youtube.com|m.youtube.com|music.youtube.com",
+        "||youtube.com/youtubei/v1/log_event$domain=youtube.com|m.youtube.com|music.youtube.com",
+        "||m.youtube.com/pagead/$domain=m.youtube.com|youtube.com",
+        "||m.youtube.com/api/stats/ads$domain=m.youtube.com|youtube.com",
+        "||m.youtube.com/ptracking$domain=m.youtube.com|youtube.com",
+        "||m.youtube.com/get_midroll_info$domain=m.youtube.com|youtube.com",
+        "||googlevideo.com/videogoodput$domain=youtube.com|m.youtube.com|music.youtube.com",
+        "||jnn-pa.googleapis.com^$domain=youtube.com|m.youtube.com",
+        "youtube.com,m.youtube.com,music.youtube.com##.ytp-ad-module",
+        "youtube.com,m.youtube.com,music.youtube.com##.ytp-ad-overlay-container",
+        "youtube.com,m.youtube.com,music.youtube.com##.ytp-ad-player-overlay",
+        "youtube.com,m.youtube.com,music.youtube.com##ytd-ad-slot-renderer",
+        "youtube.com,m.youtube.com,music.youtube.com##ytd-in-feed-ad-layout-renderer",
+        "youtube.com,m.youtube.com,music.youtube.com##ytd-banner-promo-renderer",
+        "youtube.com,m.youtube.com,music.youtube.com##ytd-promoted-sparkles-web-renderer",
+        "youtube.com,m.youtube.com,music.youtube.com##ytd-display-ad-renderer",
+        "youtube.com,m.youtube.com,music.youtube.com##ytm-promoted-sparkles-web-renderer",
+        "youtube.com,m.youtube.com,music.youtube.com##ytm-promoted-sparkles-text-search-renderer",
+        "youtube.com,m.youtube.com,music.youtube.com##ytm-companion-ad-renderer",
+        "youtube.com,m.youtube.com,music.youtube.com##ytm-mealbar-promo-renderer",
+        "youtube.com,m.youtube.com,music.youtube.com##ad-slot-renderer",
+        "youtube.com,m.youtube.com,music.youtube.com###masthead-ad",
+        "youtube.com,m.youtube.com,music.youtube.com###player-ads",
+    ]
+    let youtubeRules = youtubeFilterLines.compactMap(convertABPLineToRule)
+    if !youtubeRules.isEmpty {
+        let jsonData = try encoder.encode(youtubeRules)
+        let digest = sha256Hex(jsonData)
+        let shortHash = String(digest.prefix(12))
+        let filename = "youtube_ads_shard_0.json"
+        let identifier = "youtube_ads_shard_0_\(shortHash)"
+        try jsonData.write(to: options.outputDir.appendingPathComponent(filename), options: .atomic)
+        descriptors.append(.init(
+            identifier: identifier,
+            sourceList: "youtube_ads",
+            filename: filename,
+            ruleCount: youtubeRules.count,
+            sha256: digest
+        ))
+        combinedHashInput.append(Data(digest.utf8))
+        totalRuleCount += youtubeRules.count
+        print("[adblock-builder] Wrote \(filename): \(youtubeRules.count) rules (\(max(1, jsonData.count / 1024)) KB, sha256=\(shortHash))")
+    }
+
     let formatter = ISO8601DateFormatter()
     let bundleVersion = String(sha256Hex(combinedHashInput).prefix(16))
     let manifest = ShardManifest(

@@ -1,5 +1,9 @@
+import Photos
+import PhotosUI
+import PrismCore
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
 
 public enum VaultSortOrder: String, CaseIterable, Identifiable, Sendable {
     case dateDescending = "Newest"
@@ -10,10 +14,31 @@ public enum VaultSortOrder: String, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
 }
 
+/// Streams picked photos and large 4K videos straight to disk via `FileRepresentation` (zero RAM spike).
+private struct VaultTransferableMedia: Transferable {
+    let tempFileURL: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .item) { received in
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("PrismVaultImport", isDirectory: true)
+            try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            let originalName = received.file.lastPathComponent
+            let dest = tempDir.appendingPathComponent("\(UUID().uuidString)_\(originalName)")
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try? FileManager.default.removeItem(at: dest)
+            }
+            try FileManager.default.copyItem(at: received.file, to: dest)
+            return VaultTransferableMedia(tempFileURL: dest)
+        }
+    }
+}
+
 public struct VaultBrowserView: View {
     private let fileService: VaultFileService
     @Bindable private var authService: BiometricAuthService
     @Bindable private var audioCenter: BackgroundAudioCenter
+    @State private var themeEngine = PrismThemeEngine.shared
     private let onPlayMediaFile: ((URL, String) -> Void)?
     private let onDismiss: (() -> Void)?
 
@@ -36,8 +61,18 @@ public struct VaultBrowserView: View {
     @State private var showPINSetupAlert = false
     @State private var pinSetupInput = ""
 
+    // Import & Cross-Vault Move state
+    @State private var showPhotosPicker = false
+    @State private var pickedPhotoItems: [PhotosPickerItem] = []
+    @State private var showFileImporter = false
+    @State private var showOppositeVaultPicker = false
+    @State private var oppositeVaultEntries: [VaultEntryItem] = []
+    @State private var pendingPhotoAssetIDsToDelete: [String] = []
+    @State private var showDeleteOriginalsPrompt = false
+
     @State private var archiveProgress: Double?
     @State private var archiveStatusMessage: String?
+    @State private var statusBanner: String?
     @State private var errorBanner: String?
 
     public init(
@@ -62,10 +97,9 @@ public struct VaultBrowserView: View {
             let query = searchText.lowercased()
             base = entries.filter { $0.name.lowercased().contains(query) }
         }
-
         return base.sorted { lhs, rhs in
             if lhs.isDirectory != rhs.isDirectory {
-                return lhs.isDirectory
+                return lhs.isDirectory && !rhs.isDirectory
             }
             switch sortOrder {
             case .dateDescending:
@@ -84,15 +118,22 @@ public struct VaultBrowserView: View {
         currentRelativePath.split(separator: "/").map(String.init)
     }
 
+    private var isUnlockedForCurrentMode: Bool {
+        !isPrivateMode || authService.isPrivateUnlocked
+    }
+
     public var body: some View {
+        let tokens = themeEngine.tokens
         NavigationStack {
-            ZStack {
+            Group {
                 if isPrivateMode && !authService.isPrivateUnlocked {
-                    VaultLockOverlayView(authService: authService) {
-                        Task { await reloadDirectory() }
-                    }
+                    VaultLockOverlayView(
+                        authService: authService,
+                        title: "Private Vault Locked",
+                        subtitle: "Authenticate with Face ID, Touch ID, or Passcode to access Private Vault."
+                    )
                 } else {
-                    vaultContentList
+                    vaultContentList(tokens: tokens)
                 }
             }
             .navigationTitle(isPrivateMode ? "Private Vault" : "Vault")
@@ -121,24 +162,23 @@ public struct VaultBrowserView: View {
                 }
 
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    if isUnlockedForCurrentMode {
+                        importMenuButton
+                    }
+
                     Button {
                         showSortSheet = true
                     } label: {
                         Image(systemName: "arrow.up.arrow.down.circle")
                     }
 
-                    Button {
-                        newFolderName = ""
-                        showNewFolderAlert = true
-                    } label: {
-                        Image(systemName: "folder.badge.plus")
-                    }
-
-                    Button(isSelecting ? "Done" : "Select") {
-                        withAnimation(.snappy) {
-                            isSelecting.toggle()
-                            if !isSelecting {
-                                selectedIDs.removeAll()
+                    if isUnlockedForCurrentMode {
+                        Button(isSelecting ? "Done" : "Select") {
+                            withAnimation(.snappy) {
+                                isSelecting.toggle()
+                                if !isSelecting {
+                                    selectedIDs.removeAll()
+                                }
                             }
                         }
                     }
@@ -146,6 +186,41 @@ public struct VaultBrowserView: View {
             }
             .task(id: "\(isPrivateMode)-\(currentRelativePath)-\(authService.isPrivateUnlocked)") {
                 await reloadDirectory()
+            }
+            .photosPicker(
+                isPresented: $showPhotosPicker,
+                selection: $pickedPhotoItems,
+                maxSelectionCount: 25,
+                matching: .any(of: [.images, .videos]),
+                photoLibrary: .shared()
+            )
+            .onChange(of: pickedPhotoItems) { _, newItems in
+                guard !newItems.isEmpty else { return }
+                Task { await importPickedPhotos(newItems) }
+            }
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: true
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    Task { await importExternalFiles(urls) }
+                case .failure(let error):
+                    errorBanner = error.localizedDescription
+                }
+            }
+            .alert("Delete Originals from iOS Photos?", isPresented: $showDeleteOriginalsPrompt) {
+                Button("Delete Originals", role: .destructive) {
+                    let ids = pendingPhotoAssetIDsToDelete
+                    pendingPhotoAssetIDsToDelete = []
+                    Task { await deleteOriginalPhotoAssets(identifiers: ids) }
+                }
+                Button("Keep in Photos", role: .cancel) {
+                    pendingPhotoAssetIDsToDelete = []
+                }
+            } message: {
+                Text("Your \(pendingPhotoAssetIDsToDelete.count) item(s) have been safely copied into Private Vault. Remove the original copies from iOS Photos?")
             }
             .alert("New Folder", isPresented: $showNewFolderAlert) {
                 TextField("Folder name", text: $newFolderName)
@@ -192,7 +267,7 @@ public struct VaultBrowserView: View {
                                         Spacer()
                                         if sortOrder == option {
                                             Image(systemName: "checkmark")
-                                                .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                                                .foregroundStyle(tokens.accent)
                                         }
                                     }
                                 }
@@ -215,16 +290,30 @@ public struct VaultBrowserView: View {
             .sheet(item: $movingItem) { item in
                 NavigationStack {
                     List {
-                        Button {
-                            Task { await commitMove(item: item, targetFolder: "") }
-                        } label: {
-                            Label("Vault Root", systemImage: "internaldrive")
-                        }
-                        ForEach(availableFolders.filter { $0.relativePath != item.relativePath && !$0.relativePath.hasPrefix(item.relativePath + "/") }) { folder in
+                        Section("Move Within \(isPrivateMode ? "Private Vault" : "Files Vault")") {
                             Button {
-                                Task { await commitMove(item: item, targetFolder: folder.relativePath) }
+                                Task { await commitMove(item: item, targetFolder: "") }
                             } label: {
-                                Label(folder.relativePath, systemImage: "folder.fill")
+                                Label("Vault Root", systemImage: "internaldrive")
+                            }
+                            ForEach(availableFolders.filter { $0.relativePath != item.relativePath && !$0.relativePath.hasPrefix(item.relativePath + "/") }) { folder in
+                                Button {
+                                    Task { await commitMove(item: item, targetFolder: folder.relativePath) }
+                                } label: {
+                                    Label(folder.relativePath, systemImage: "folder.fill")
+                                }
+                            }
+                        }
+
+                        Section("Move Across Vaults") {
+                            Button {
+                                movingItem = nil
+                                Task { await moveAcrossVaults(items: [item], toPrivate: !item.isPrivate) }
+                            } label: {
+                                Label(
+                                    item.isPrivate ? "Move to Files Vault" : "Move to Private Vault",
+                                    systemImage: item.isPrivate ? "folder.badge.person.crop" : "lock.shield.fill"
+                                )
                             }
                         }
                     }
@@ -238,10 +327,91 @@ public struct VaultBrowserView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
+            .sheet(isPresented: $showOppositeVaultPicker) {
+                NavigationStack {
+                    List {
+                        if oppositeVaultEntries.isEmpty {
+                            ContentUnavailableView(
+                                isPrivateMode ? "Files Vault is Empty" : "Private Vault is Empty",
+                                systemImage: "folder"
+                            )
+                        } else {
+                            ForEach(oppositeVaultEntries) { item in
+                                Button {
+                                    showOppositeVaultPicker = false
+                                    Task { await moveAcrossVaults(items: [item], toPrivate: isPrivateMode) }
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: iconName(for: item))
+                                            .foregroundStyle(tokens.accent)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.name)
+                                                .foregroundStyle(.primary)
+                                                .lineLimit(1)
+                                            Text(item.isDirectory
+                                                ? "Folder"
+                                                : ByteCountFormatter.string(fromByteCount: item.byteSize, countStyle: .file))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .navigationTitle(isPrivateMode ? "Move from Files Vault" : "Move from Private Vault")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { showOppositeVaultPicker = false }
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large])
+            }
         }
+        .tint(tokens.accent)
     }
 
-    private var vaultContentList: some View {
+    private var importMenuButton: some View {
+        Menu {
+            Button {
+                showPhotosPicker = true
+            } label: {
+                Label("Import from Photos & Videos", systemImage: "photo.on.rectangle.angled")
+            }
+
+            Button {
+                showFileImporter = true
+            } label: {
+                Label("Import from iOS Files", systemImage: "doc.badge.plus")
+            }
+
+            Button {
+                Task { await openOppositeVaultPicker() }
+            } label: {
+                Label(
+                    isPrivateMode ? "Move from Files Vault" : "Move from Private Vault",
+                    systemImage: isPrivateMode ? "lock.doc.fill" : "folder.fill"
+                )
+            }
+
+            Divider()
+
+            Button {
+                newFolderName = ""
+                showNewFolderAlert = true
+            } label: {
+                Label("New Folder", systemImage: "folder.badge.plus")
+            }
+        } label: {
+            Image(systemName: "plus.circle.fill")
+                .font(.title3)
+        }
+        .accessibilityLabel("Import or Create")
+    }
+
+    private func vaultContentList(tokens: PrismThemeTokens) -> some View {
         VStack(spacing: 0) {
             Picker("Vault Space", selection: $isPrivateMode) {
                 Text("Files Vault").tag(false)
@@ -279,12 +449,21 @@ public struct VaultBrowserView: View {
 
             if let progress = archiveProgress {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(archiveStatusMessage ?? "Processing archive…")
+                    Text(archiveStatusMessage ?? "Processing…")
                         .font(.caption.weight(.medium))
                     ProgressView(value: progress)
+                        .tint(tokens.accent)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+            }
+
+            if let statusBanner {
+                Text(statusBanner)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tokens.accent)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
             }
 
             if let errorBanner {
@@ -298,16 +477,37 @@ public struct VaultBrowserView: View {
             List {
                 Section {
                     if filteredEntries.isEmpty {
-                        ContentUnavailableView(
-                            isPrivateMode ? "Private Vault is Empty" : "No Files Yet",
-                            systemImage: isPrivateMode ? "lock.doc" : "folder",
-                            description: Text(isPrivateMode
-                                ? "Private downloads and saved pages stay hidden from iOS Files and backups."
-                                : "Downloads and saved .webarchive pages appear here and in the iOS Files app.")
-                        )
+                        VStack(spacing: 14) {
+                            ContentUnavailableView(
+                                isPrivateMode ? "Private Vault is Empty" : "No Files Yet",
+                                systemImage: isPrivateMode ? "lock.doc" : "folder",
+                                description: Text(isPrivateMode
+                                    ? "Import photos, videos, or files here to hide them from iOS Files and backups."
+                                    : "Downloads, imported media, and saved .webarchive pages appear here and in the iOS Files app.")
+                            )
+                            HStack(spacing: 10) {
+                                Button {
+                                    showPhotosPicker = true
+                                } label: {
+                                    Label("Import Photos", systemImage: "photo.on.rectangle")
+                                        .font(.caption.weight(.semibold))
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(tokens.accent)
+
+                                Button {
+                                    showFileImporter = true
+                                } label: {
+                                    Label("Import Files", systemImage: "doc.badge.plus")
+                                        .font(.caption.weight(.semibold))
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            .padding(.bottom, 8)
+                        }
                     } else {
                         ForEach(filteredEntries) { item in
-                            vaultRow(for: item)
+                            vaultRow(for: item, tokens: tokens)
                         }
                     }
                 } footer: {
@@ -322,12 +522,25 @@ public struct VaultBrowserView: View {
             }
 
             if isSelecting && !selectedIDs.isEmpty {
-                GlassEffectContainer(spacing: 12) {
-                    HStack(spacing: 12) {
+                GlassEffectContainer(spacing: 10) {
+                    HStack(spacing: 10) {
+                        Button {
+                            let targets = entries.filter { selectedIDs.contains($0.id) }
+                            Task { await moveAcrossVaults(items: targets, toPrivate: !isPrivateMode) }
+                        } label: {
+                            Label(
+                                isPrivateMode ? "To Files" : "To Private",
+                                systemImage: isPrivateMode ? "folder.fill" : "lock.shield.fill"
+                            )
+                            .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.glass)
+
                         Button {
                             Task { await compressSelected() }
                         } label: {
                             Label("Zip (\(selectedIDs.count))", systemImage: "archivebox.fill")
+                                .font(.caption.weight(.semibold))
                         }
                         .buttonStyle(.glass)
 
@@ -335,6 +548,7 @@ public struct VaultBrowserView: View {
                             Task { await deleteSelected() }
                         } label: {
                             Label("Delete", systemImage: "trash.fill")
+                                .font(.caption.weight(.semibold))
                         }
                         .buttonStyle(.glass)
                     }
@@ -346,20 +560,16 @@ public struct VaultBrowserView: View {
     }
 
     @ViewBuilder
-    private func vaultRow(for item: VaultEntryItem) -> some View {
+    private func vaultRow(for item: VaultEntryItem, tokens: PrismThemeTokens) -> some View {
         HStack(spacing: 12) {
             if isSelecting {
                 Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selectedIDs.contains(item.id)
-                        ? Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0)
-                        : .secondary)
+                    .foregroundStyle(selectedIDs.contains(item.id) ? tokens.accent : .secondary)
             }
 
             Image(systemName: iconName(for: item))
                 .font(.title3)
-                .foregroundStyle(item.isDirectory
-                    ? .blue
-                    : Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                .foregroundStyle(item.isDirectory ? .blue : tokens.accent)
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -403,6 +613,24 @@ public struct VaultBrowserView: View {
                 openItem(item)
             }
         }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button {
+                Task { await moveAcrossVaults(items: [item], toPrivate: !item.isPrivate) }
+            } label: {
+                Label(
+                    item.isPrivate ? "Files Vault" : "Private Vault",
+                    systemImage: item.isPrivate ? "folder.fill" : "lock.shield.fill"
+                )
+            }
+            .tint(item.isPrivate ? .blue : .purple)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                Task { await deleteItem(item) }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
         .contextMenu {
             if item.kind == .audio || item.kind == .video {
                 Button {
@@ -417,6 +645,23 @@ public struct VaultBrowserView: View {
                     Task { await extractItem(item) }
                 } label: {
                     Label("Extract Here", systemImage: "archivebox.fill")
+                }
+            }
+
+            Button {
+                Task { await moveAcrossVaults(items: [item], toPrivate: !item.isPrivate) }
+            } label: {
+                Label(
+                    item.isPrivate ? "Move to Files Vault" : "Move to Private Vault",
+                    systemImage: item.isPrivate ? "folder.fill" : "lock.shield.fill"
+                )
+            }
+
+            if !item.isDirectory && (item.kind == .image || item.kind == .video) {
+                Button {
+                    Task { await saveToPhotoLibrary(item) }
+                } label: {
+                    Label("Save to Photos", systemImage: "square.and.arrow.down")
                 }
             }
 
@@ -449,6 +694,191 @@ public struct VaultBrowserView: View {
             }
         }
     }
+
+    // MARK: - Import, Cross-Vault Move & Photos Export
+
+    private func importPickedPhotos(_ items: [PhotosPickerItem]) async {
+        pickedPhotoItems = []
+        errorBanner = nil
+        statusBanner = nil
+        archiveStatusMessage = "Importing \(items.count) media item(s)…"
+        archiveProgress = 0.05
+
+        var importedCount = 0
+        var assetIDs: [String] = []
+        let total = Double(max(1, items.count))
+
+        for (index, pickerItem) in items.enumerated() {
+            do {
+                if let transferable = try await pickerItem.loadTransferable(type: VaultTransferableMedia.self) {
+                    let rawName = transferable.tempFileURL.lastPathComponent
+                    let cleanName: String
+                    if let underscoreIdx = rawName.firstIndex(of: "_"), rawName.distance(from: rawName.startIndex, to: underscoreIdx) == 36 {
+                        cleanName = String(rawName[rawName.index(after: underscoreIdx)...])
+                    } else {
+                        cleanName = rawName
+                    }
+                    _ = try await fileService.importExternalFile(
+                        from: transferable.tempFileURL,
+                        preferredFilename: cleanName,
+                        intoFolderRelativePath: currentRelativePath,
+                        isPrivate: isPrivateMode,
+                        deleteSourceIfTemporary: true
+                    )
+                    importedCount += 1
+                    if let assetID = pickerItem.itemIdentifier {
+                        assetIDs.append(assetID)
+                    }
+                }
+            } catch {
+                errorBanner = error.localizedDescription
+                PrismLogCenter.record(.error, category: .vault, "Photo import failed: \(error.localizedDescription)")
+            }
+            archiveProgress = Double(index + 1) / total
+        }
+
+        archiveProgress = nil
+        archiveStatusMessage = nil
+        await reloadDirectory()
+
+        if importedCount > 0 {
+            showTemporaryStatus("Imported \(importedCount) item(s) to \(isPrivateMode ? "Private Vault" : "Files Vault")")
+            if isPrivateMode && !assetIDs.isEmpty {
+                pendingPhotoAssetIDsToDelete = assetIDs
+                showDeleteOriginalsPrompt = true
+            }
+        }
+    }
+
+    private func importExternalFiles(_ urls: [URL]) async {
+        errorBanner = nil
+        statusBanner = nil
+        archiveStatusMessage = "Importing \(urls.count) file(s)…"
+        archiveProgress = 0.05
+
+        var importedCount = 0
+        let total = Double(max(1, urls.count))
+
+        for (index, url) in urls.enumerated() {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed { url.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                _ = try await fileService.importExternalFile(
+                    from: url,
+                    preferredFilename: url.lastPathComponent,
+                    intoFolderRelativePath: currentRelativePath,
+                    isPrivate: isPrivateMode,
+                    deleteSourceIfTemporary: false
+                )
+                importedCount += 1
+            } catch {
+                errorBanner = error.localizedDescription
+                PrismLogCenter.record(.error, category: .vault, "File import failed: \(error.localizedDescription)")
+            }
+            archiveProgress = Double(index + 1) / total
+        }
+
+        archiveProgress = nil
+        archiveStatusMessage = nil
+        await reloadDirectory()
+
+        if importedCount > 0 {
+            showTemporaryStatus("Imported \(importedCount) file(s) to \(isPrivateMode ? "Private Vault" : "Files Vault")")
+        }
+    }
+
+    private func openOppositeVaultPicker() async {
+        let sourceIsPrivate = !isPrivateMode
+        if sourceIsPrivate && !authService.isPrivateUnlocked {
+            let ok = await authService.authenticate()
+            guard ok else { return }
+        }
+        oppositeVaultEntries = (try? await fileService.listDirectory(relativePath: "", isPrivate: sourceIsPrivate)) ?? []
+        showOppositeVaultPicker = true
+    }
+
+    private func moveAcrossVaults(items: [VaultEntryItem], toPrivate: Bool) async {
+        guard !items.isEmpty else { return }
+        if toPrivate && !authService.isPrivateUnlocked {
+            let ok = await authService.authenticate()
+            guard ok else { return }
+        }
+        errorBanner = nil
+        var movedCount = 0
+        for item in items {
+            do {
+                _ = try await fileService.moveAcrossVaults(
+                    relativePath: item.relativePath,
+                    fromPrivate: item.isPrivate,
+                    toPrivate: toPrivate,
+                    destinationFolderRelativePath: toPrivate == isPrivateMode ? currentRelativePath : ""
+                )
+                movedCount += 1
+            } catch {
+                errorBanner = error.localizedDescription
+                PrismLogCenter.record(.error, category: .vault, "Cross-vault move failed: \(error.localizedDescription)")
+            }
+        }
+        selectedIDs.removeAll()
+        isSelecting = false
+        await reloadDirectory()
+        if movedCount > 0 {
+            showTemporaryStatus("Moved \(movedCount) item(s) to \(toPrivate ? "Private Vault" : "Files Vault")")
+        }
+    }
+
+    private func deleteOriginalPhotoAssets(identifiers: [String]) async {
+        guard !identifiers.isEmpty else { return }
+        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            errorBanner = "Photos permission required to delete original items."
+            return
+        }
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
+        guard assets.count > 0 else { return }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.deleteAssets(assets)
+            }
+            showTemporaryStatus("Removed original item(s) from iOS Photos")
+        } catch {
+            errorBanner = error.localizedDescription
+        }
+    }
+
+    private func saveToPhotoLibrary(_ item: VaultEntryItem) async {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else {
+            errorBanner = "Allow Photos access in iOS Settings to save media."
+            return
+        }
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                if item.kind == .video {
+                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: item.url)
+                } else {
+                    PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: item.url)
+                }
+            }
+            showTemporaryStatus("Saved \(item.name) to iOS Photos")
+        } catch {
+            errorBanner = error.localizedDescription
+        }
+    }
+
+    private func showTemporaryStatus(_ message: String) {
+        statusBanner = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3.0))
+            if statusBanner == message {
+                statusBanner = nil
+            }
+        }
+    }
+
+    // MARK: - Existing Helpers
 
     private func iconName(for item: VaultEntryItem) -> String {
         if item.isDirectory { return "folder.fill" }
