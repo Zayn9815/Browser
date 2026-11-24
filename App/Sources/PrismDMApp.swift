@@ -8,6 +8,8 @@ public struct PrismDMApp: App {
     @UIApplicationDelegateAdaptor(PrismAppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
+    @State private var browserStore = BrowserStore()
+    private let audioCenter = BackgroundAudioCenter.shared
     private let modelContainer: ModelContainer
 
     public init() {
@@ -21,8 +23,11 @@ public struct PrismDMApp: App {
     public var body: some Scene {
         WindowGroup {
             ZStack {
-                RootShellCoordinatorView()
-                    .modelContainer(modelContainer)
+                RootShellCoordinatorView(
+                    browserStore: browserStore,
+                    audioCenter: audioCenter
+                )
+                .modelContainer(modelContainer)
 
                 if scenePhase != .active {
                     ZStack {
@@ -43,6 +48,12 @@ public struct PrismDMApp: App {
                 }
             }
             .preferredColorScheme(.dark)
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .background {
+                    browserStore.handleSceneBackgrounded(isBackgroundAudioActive: audioCenter.isPlaying)
+                    browserStore.authService.lock()
+                }
+            }
         }
     }
 }

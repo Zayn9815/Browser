@@ -36,6 +36,9 @@ let package = Package(
         .target(
             name: "AdBlockEngine",
             dependencies: [],
+            resources: [
+                .process("Resources"),
+            ],
             linkerSettings: [
                 .linkedFramework("WebKit"),
             ]
