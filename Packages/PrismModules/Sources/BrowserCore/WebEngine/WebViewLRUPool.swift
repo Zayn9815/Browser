@@ -141,16 +141,19 @@ public final class WebViewLRUPool {
 
         let snapConfig = WKSnapshotConfiguration()
         snapConfig.snapshotWidth = NSNumber(value: 360)
-        do {
-            let image = try await webView.takeSnapshot(with: snapConfig)
-            let resized = downscaleSnapshot(image, targetSize: CGSize(width: 360, height: 640))
-            if let jpeg = resized.jpegData(compressionQuality: 0.72) {
-                saveSnapshotData(jpeg, for: tabID, isIncognito: isIncognito)
+        let image: UIImage? = await withCheckedContinuation { continuation in
+            webView.takeSnapshot(with: snapConfig) { snapshot, _ in
+                continuation.resume(returning: snapshot)
             }
-            return resized
-        } catch {
+        }
+        guard let image else {
             return loadSnapshotImage(for: tabID, isIncognito: isIncognito)
         }
+        let resized = downscaleSnapshot(image, targetSize: CGSize(width: 360, height: 640))
+        if let jpeg = resized.jpegData(compressionQuality: 0.72) {
+            saveSnapshotData(jpeg, for: tabID, isIncognito: isIncognito)
+        }
+        return resized
     }
 
     public func loadSnapshotImage(for tabID: UUID, isIncognito: Bool) -> UIImage? {

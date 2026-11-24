@@ -31,7 +31,11 @@ public struct WebArchiveExporter {
     ) async throws -> VaultItemRecordSnapshot {
         let archiveData: Data
         do {
-            archiveData = try await webView.createWebArchiveData()
+            archiveData = try await withCheckedThrowingContinuation { continuation in
+                webView.createWebArchiveData { result in
+                    continuation.resume(with: result)
+                }
+            }
         } catch {
             throw WebArchiveExportError.archiveCreationFailed(error.localizedDescription)
         }

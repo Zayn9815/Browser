@@ -60,7 +60,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
     public let adBlockCompiler: AdBlockRuleCompiler
     public let trackerMonitor: TrackerShieldMonitor
     public let webViewPool: WebViewLRUPool
-    public let findInPageService: FindInPageService
+    public var findInPageService: FindInPageService
     public let authService: BiometricAuthService
 
     public weak var downloadCoordinator: (any ParallelDownloadCoordinating)?
@@ -364,7 +364,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
             return
         }
         do {
-            let rawResult = try await webView.evaluateJavaScript(
+            let rawResult: Any? = try await webView.evaluateJavaScript(
                 "typeof window.__prismExtractReaderArticle === 'function' ? window.__prismExtractReaderArticle() : JSON.stringify({ error: 'Reader script unavailable.' })",
                 in: nil,
                 in: .defaultClient
