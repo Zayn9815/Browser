@@ -9,11 +9,9 @@ import VaultManager
 import WebKit
 
 public struct BrowserSettingsView: View {
-    @Environment(\.modelContext) private var modelContext
     @Bindable public var store: BrowserStore
     @Bindable public var downloadStore: ParallelDownloadStore
 
-    @State private var homepageDraft: String = ""
     @State private var showSignOutConfirm = false
 
     public init(store: BrowserStore, downloadStore: ParallelDownloadStore) {
@@ -25,17 +23,93 @@ public struct BrowserSettingsView: View {
         NavigationStack {
             List {
                 googleAccountSection
-                shieldAndProtectionSection
-                generalAndAppearanceSection
-                mediaAndPlayerSection
-                tabsAndMemorySection
-                privacyAndSecuritySection
-                downloadEngineSection
-                enginesAndLegalSection
+
+                Section("Browser") {
+                    NavigationLink {
+                        GeneralSettingsView(store: store)
+                    } label: {
+                        SettingsCategoryRow(
+                            title: "General & Appearance",
+                            systemImage: "safari.fill",
+                            badgeColor: .blue,
+                            trailingDetail: store.selectedSearchEngine.displayName
+                        )
+                    }
+
+                    NavigationLink {
+                        ShieldSettingsView(store: store)
+                    } label: {
+                        SettingsCategoryRow(
+                            title: "Shield & Protection",
+                            systemImage: "shield.lefthalf.filled",
+                            badgeColor: PrismBrandPalette.crimsonAccent,
+                            trailingDetail: store.globalAdBlockEnabled ? "On" : "Off"
+                        )
+                    }
+
+                    NavigationLink {
+                        MediaSettingsView(store: store)
+                    } label: {
+                        SettingsCategoryRow(
+                            title: "Media & PrismPlayer",
+                            systemImage: "play.rectangle.fill",
+                            badgeColor: .purple,
+                            trailingDetail: store.settings.mediaInterceptionEnabled ? "On" : "Off"
+                        )
+                    }
+
+                    NavigationLink {
+                        TabsPerformanceSettingsView(store: store)
+                    } label: {
+                        SettingsCategoryRow(
+                            title: "Tabs & Performance",
+                            systemImage: "square.on.square.fill",
+                            badgeColor: .teal,
+                            trailingDetail: "\(store.settings.maxLiveWebViews) max"
+                        )
+                    }
+                }
+
+                Section("Engine & Security") {
+                    NavigationLink {
+                        DownloadsSettingsView(downloadStore: downloadStore)
+                    } label: {
+                        SettingsCategoryRow(
+                            title: "Downloads & Engine",
+                            systemImage: "arrow.down.circle.fill",
+                            badgeColor: .indigo,
+                            trailingDetail: downloadStore.preferredHTTPBackend == .libcurl ? "libcurl" : "URLSession"
+                        )
+                    }
+
+                    NavigationLink {
+                        PrivacySecuritySettingsView(store: store)
+                    } label: {
+                        SettingsCategoryRow(
+                            title: "Privacy, Security & Data",
+                            systemImage: "lock.shield.fill",
+                            badgeColor: .green,
+                            trailingDetail: store.authService.hasConfiguredPIN ? "PIN Set" : nil
+                        )
+                    }
+                }
+
+                Section {
+                    NavigationLink {
+                        AboutAndLicensesSettingsView()
+                    } label: {
+                        SettingsCategoryRow(
+                            title: "About & Licenses",
+                            systemImage: "info.circle.fill",
+                            badgeColor: .gray,
+                            trailingDetail: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+                        )
+                    }
+                }
             }
+            .contentMargins(.bottom, 100, for: .scrollContent)
             .navigationTitle("Settings")
             .onAppear {
-                homepageDraft = store.settings.homepageURLString
                 Task {
                     await store.googleAccount.refreshSessionStatus()
                 }
@@ -58,7 +132,7 @@ public struct BrowserSettingsView: View {
         }
     }
 
-    // MARK: - 1. Google Account Section
+    // MARK: - Google Account Section
 
     private var googleAccountSection: some View {
         Section {
@@ -130,330 +204,437 @@ public struct BrowserSettingsView: View {
             Text("Account")
         }
     }
+}
 
-    // MARK: - 2. Shield & Protection Section
+// MARK: - Reusable Native iOS Settings Row
 
-    private var shieldAndProtectionSection: some View {
-        Section {
-            Toggle(
-                "Ad & Tracker Blocker",
-                isOn: Binding(
-                    get: { store.globalAdBlockEnabled },
-                    set: { store.setGlobalAdBlockEnabled($0) }
-                )
-            )
+private struct SettingsCategoryRow: View {
+    let title: String
+    let systemImage: String
+    let badgeColor: Color
+    var trailingDetail: String?
 
-            if store.globalAdBlockEnabled {
-                Toggle(
-                    "Block Ads (EasyList)",
-                    isOn: Binding(
-                        get: { store.settings.blockAdsEasyList },
-                        set: { store.setEasyListEnabled($0) }
-                    )
-                )
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 29, height: 29)
+                .background(badgeColor.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
 
-                Toggle(
-                    "Block Trackers (EasyPrivacy)",
-                    isOn: Binding(
-                        get: { store.settings.blockTrackersEasyPrivacy },
-                        set: { store.setEasyPrivacyEnabled($0) }
-                    )
-                )
-            }
+            Text(title)
+                .foregroundStyle(.primary)
 
-            Toggle(
-                "Block Pop-ups & Redirects",
-                isOn: Binding(
-                    get: { store.settings.blockPopups },
-                    set: { store.setBlockPopups($0) }
-                )
-            )
+            Spacer()
 
-            Toggle(
-                "HTTPS-Only Mode",
-                isOn: Binding(
-                    get: { store.settings.httpsOnlyEnabled },
-                    set: { store.setHTTPSOnlyEnabled($0) }
-                )
-            )
-
-            Toggle(
-                "Strip Tracking Parameters (UTM / fbclid)",
-                isOn: Binding(
-                    get: { store.settings.stripTrackingParameters },
-                    set: { store.setStripTrackingParameters($0) }
-                )
-            )
-
-            Toggle(
-                "Block JavaScript (Strict)",
-                isOn: Binding(
-                    get: { store.settings.blockJavaScript },
-                    set: { store.setBlockJavaScript($0) }
-                )
-            )
-
-            NavigationLink {
-                AllowlistedSitesView(store: store)
-            } label: {
-                HStack {
-                    Text("Allowlisted Sites")
-                    Spacer()
-                    Text("\(store.allowlistedHosts.count)")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-            }
-        } header: {
-            Text("Shield & Protection")
-        } footer: {
-            Text("Offline WebKit Content Blocker lists run natively with zero remote filter requests. HTTPS-Only automatically falls back to HTTP if a site does not support TLS.")
-        }
-    }
-
-    // MARK: - 3. General & Appearance Section
-
-    private var generalAndAppearanceSection: some View {
-        Section("General & Appearance") {
-            Picker("Default Search Engine", selection: Binding(
-                get: { store.selectedSearchEngine },
-                set: { store.selectSearchEngine($0) }
-            )) {
-                ForEach(SearchEngineOption.allCases) { option in
-                    Text(option.displayName).tag(option)
-                }
-            }
-
-            HStack {
-                Text("Homepage")
-                Spacer()
-                TextField("Start Page", text: $homepageDraft)
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                    .submitLabel(.done)
+            if let trailingDetail {
+                Text(trailingDetail)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .onSubmit {
-                        store.setHomepageURLString(homepageDraft)
-                        store.showToast(homepageDraft.isEmpty ? "Homepage reset to Start Page" : "Homepage saved")
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+// MARK: - 1. General & Appearance Sub-Page
+
+private struct GeneralSettingsView: View {
+    @Bindable var store: BrowserStore
+    @State private var homepageDraft: String = ""
+
+    var body: some View {
+        List {
+            Section("Search & Navigation") {
+                Picker("Default Search Engine", selection: Binding(
+                    get: { store.selectedSearchEngine },
+                    set: { store.selectSearchEngine($0) }
+                )) {
+                    ForEach(SearchEngineOption.allCases) { option in
+                        Text(option.displayName).tag(option)
                     }
-            }
+                }
 
-            Stepper(
-                value: Binding(
-                    get: { store.settings.defaultPageZoom },
-                    set: { store.setDefaultPageZoom($0) }
-                ),
-                in: 0.75...1.50,
-                step: 0.05
-            ) {
                 HStack {
-                    Text("Default Page Zoom")
+                    Text("Homepage")
                     Spacer()
-                    Text("\(Int((store.settings.defaultPageZoom * 100).rounded()))%")
+                    TextField("Start Page", text: $homepageDraft)
+                        .multilineTextAlignment(.trailing)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .submitLabel(.done)
                         .foregroundStyle(.secondary)
-                        .monospacedDigit()
+                        .onSubmit {
+                            store.setHomepageURLString(homepageDraft)
+                            store.showToast(homepageDraft.isEmpty ? "Homepage reset to Start Page" : "Homepage saved")
+                        }
                 }
             }
 
-            Toggle(
-                "Request Desktop Site by Default",
-                isOn: Binding(
-                    get: { store.settings.defaultRequestDesktopSite },
-                    set: { store.setDefaultRequestDesktopSite($0) }
-                )
-            )
-
-            Toggle(
-                "Smart Dark Mode for Websites",
-                isOn: Binding(
-                    get: { store.globalDarkModeEnabled },
-                    set: { _ in store.toggleGlobalDarkMode() }
-                )
-            )
-
-            Toggle(
-                "Auto-Hide Address Bar on Scroll",
-                isOn: Binding(
-                    get: { store.settings.autoHideToolbarOnScroll },
-                    set: { store.setAutoHideToolbarOnScroll($0) }
-                )
-            )
-
-            Toggle(
-                "Open External App Links (tel / mailto)",
-                isOn: Binding(
-                    get: { store.settings.openExternalAppLinks },
-                    set: { store.setOpenExternalAppLinks($0) }
-                )
-            )
-        }
-    }
-
-    // MARK: - 4. Media & Video Player Section
-
-    private var mediaAndPlayerSection: some View {
-        Section {
-            Toggle(
-                "Video Detector & PrismPlayer Takeover",
-                isOn: Binding(
-                    get: { store.settings.mediaInterceptionEnabled },
-                    set: { store.setMediaInterceptionEnabled($0) }
-                )
-            )
-
-            Toggle(
-                "Auto-Play Web Videos",
-                isOn: Binding(
-                    get: { store.settings.autoPlayVideos },
-                    set: { store.setAutoPlayVideos($0) }
-                )
-            )
-
-            Toggle(
-                "Auto-Lock Landscape in Fullscreen",
-                isOn: Binding(
-                    get: { store.settings.autoLockLandscapeInPlayer },
-                    set: { store.setAutoLockLandscapeInPlayer($0) }
-                )
-            )
-        } header: {
-            Text("Media & PrismPlayer")
-        } footer: {
-            Text("When enabled, PrismDM detects playable HLS/MP4 streams across frames and upgrades fullscreen playback to the Liquid Glass PrismPlayer.")
-        }
-    }
-
-    // MARK: - 5. Tabs & Memory Section
-
-    private var tabsAndMemorySection: some View {
-        Section {
-            Stepper(
-                "Active WebView Pool Limit: \(store.settings.maxLiveWebViews)",
-                value: Binding(
-                    get: { store.settings.maxLiveWebViews },
-                    set: { store.setMaxLiveWebViews($0) }
-                ),
-                in: 2...8
-            )
-
-            Toggle(
-                "Restore Tabs on Launch",
-                isOn: Binding(
-                    get: { store.settings.restoreTabsOnStartup },
-                    set: { store.setRestoreTabsOnStartup($0) }
-                )
-            )
-
-            Toggle(
-                "Close Incognito Tabs When Backgrounded",
-                isOn: Binding(
-                    get: { store.settings.autoCloseIncognitoOnBackground },
-                    set: { store.setAutoCloseIncognitoOnBackground($0) }
-                )
-            )
-        } header: {
-            Text("Tabs & Performance")
-        } footer: {
-            Text("Inactive tabs beyond the pool limit are hibernated to disk snapshots to keep iPhone RAM usage low.")
-        }
-    }
-
-    // MARK: - 6. Privacy, Security & Data Section
-
-    private var privacyAndSecuritySection: some View {
-        Section("Privacy, Security & Data") {
-            Toggle(
-                "Privacy Screen in App Switcher",
-                isOn: Binding(
-                    get: { store.settings.privacyCurtainEnabled },
-                    set: { store.setPrivacyCurtainEnabled($0) }
-                )
-            )
-
-            NavigationLink {
-                VaultPINSetupView(authService: store.authService)
-            } label: {
-                HStack {
-                    Label("Private Vault PIN", systemImage: "key.fill")
-                    Spacer()
-                    Text(store.authService.hasConfiguredPIN ? "Configured" : "Not Set")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            NavigationLink {
-                ClearBrowsingDataView(store: store)
-            } label: {
-                Label("Clear Browsing Data…", systemImage: "trash")
-                    .foregroundStyle(.red)
-            }
-
-            Button("Lock Private Vault & Incognito Now", role: .destructive) {
-                store.authService.lock()
-                store.showToast("Private Vault & Incognito locked.")
-            }
-
-            LabeledContent("Active WebView Pool", value: "\(store.webViewPool.liveTabCount) / \(store.webViewPool.maxLiveWebViews)")
-            LabeledContent("Trackers Blocked This Session", value: "\(store.trackerMonitor.sessionTotalBlocked)")
-            LabeledContent("Pop-ups Blocked This Session", value: "\(store.blockedPopupsCount)")
-            LabeledContent("Offline Filter Shards", value: AdBlockManifestLoader.summary())
-        }
-    }
-
-    // MARK: - 7. Parallel Download Engine Section
-
-    private var downloadEngineSection: some View {
-        Section("Parallel Download Engine (SDMCore)") {
-            Picker("Default HTTP Backend", selection: $downloadStore.preferredHTTPBackend) {
-                Text("libcurl Multi-Range").tag(DownloadEngineKind.libcurl)
-                Text("iOS Background URLSession").tag(DownloadEngineKind.urlSession)
-            }
-
-            Stepper(
-                "Connections per Download: \(downloadStore.defaultConnectionsPerDownload)",
-                value: $downloadStore.defaultConnectionsPerDownload,
-                in: 1...16
-            )
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("Global Bandwidth Cap")
-                    Spacer()
-                    Text(downloadStore.globalBandwidthLimitBytesPerSec == 0
-                        ? "Unlimited"
-                        : "\(ByteCountFormatter.string(fromByteCount: Int64(downloadStore.globalBandwidthLimitBytesPerSec), countStyle: .file))/s")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Slider(
+            Section("Display & Browsing") {
+                Stepper(
                     value: Binding(
-                        get: { Double(downloadStore.globalBandwidthLimitBytesPerSec) / 1_000_000.0 },
-                        set: { downloadStore.globalBandwidthLimitBytesPerSec = UInt64(($0 * 1_000_000.0).rounded()) }
+                        get: { store.settings.defaultPageZoom },
+                        set: { store.setDefaultPageZoom($0) }
                     ),
-                    in: 0...50,
-                    step: 1
+                    in: 0.75...1.50,
+                    step: 0.05
+                ) {
+                    HStack {
+                        Text("Default Page Zoom")
+                        Spacer()
+                        Text("\(Int((store.settings.defaultPageZoom * 100).rounded()))%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+
+                Toggle(
+                    "Request Desktop Site by Default",
+                    isOn: Binding(
+                        get: { store.settings.defaultRequestDesktopSite },
+                        set: { store.setDefaultRequestDesktopSite($0) }
+                    )
                 )
-                .tint(PrismBrandPalette.crimsonAccent)
+
+                Toggle(
+                    "Smart Dark Mode for Websites",
+                    isOn: Binding(
+                        get: { store.globalDarkModeEnabled },
+                        set: { _ in store.toggleGlobalDarkMode() }
+                    )
+                )
+
+                Toggle(
+                    "Auto-Hide Address Bar on Scroll",
+                    isOn: Binding(
+                        get: { store.settings.autoHideToolbarOnScroll },
+                        set: { store.setAutoHideToolbarOnScroll($0) }
+                    )
+                )
+
+                Toggle(
+                    "Open External App Links (tel / mailto)",
+                    isOn: Binding(
+                        get: { store.settings.openExternalAppLinks },
+                        set: { store.setOpenExternalAppLinks($0) }
+                    )
+                )
             }
+        }
+        .contentMargins(.bottom, 100, for: .scrollContent)
+        .navigationTitle("General & Appearance")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            homepageDraft = store.settings.homepageURLString
         }
     }
+}
 
-    // MARK: - 8. Native Engines & Legal Section
+// MARK: - 2. Shield & Protection Sub-Page
 
-    private var enginesAndLegalSection: some View {
-        Section("Native Engines & Legal") {
-            LabeledContent("Download Core", value: ParallelDownloaderEngineDiagnostics.sdmCoreVersionSummary)
-            LabeledContent("HLS Remux Core", value: ParallelDownloaderEngineDiagnostics.ffmpegVersionSummary)
-            LabeledContent("Universal Player", value: PrismPlayerEngineDiagnostics.mpvAPIVersionSummary)
-            LabeledContent("Vault Archive", value: VaultEngineDiagnostics.archiveEngineSummary)
-            LabeledContent("Media Bridge", value: "Schema v\(MediaInterceptorBridgeInfo.loadSchemaVersion())")
+private struct ShieldSettingsView: View {
+    @Bindable var store: BrowserStore
 
-            NavigationLink("Engine & Open Source Licenses") {
-                OpenSourceLicensesView()
+    var body: some View {
+        List {
+            Section {
+                Toggle(
+                    "Ad & Tracker Blocker",
+                    isOn: Binding(
+                        get: { store.globalAdBlockEnabled },
+                        set: { store.setGlobalAdBlockEnabled($0) }
+                    )
+                )
+
+                if store.globalAdBlockEnabled {
+                    Toggle(
+                        "Block Ads (EasyList)",
+                        isOn: Binding(
+                            get: { store.settings.blockAdsEasyList },
+                            set: { store.setEasyListEnabled($0) }
+                        )
+                    )
+
+                    Toggle(
+                        "Block Trackers (EasyPrivacy)",
+                        isOn: Binding(
+                            get: { store.settings.blockTrackersEasyPrivacy },
+                            set: { store.setEasyPrivacyEnabled($0) }
+                        )
+                    )
+                }
+
+                Toggle(
+                    "Block Pop-ups & Redirects",
+                    isOn: Binding(
+                        get: { store.settings.blockPopups },
+                        set: { store.setBlockPopups($0) }
+                    )
+                )
+
+                Toggle(
+                    "HTTPS-Only Mode",
+                    isOn: Binding(
+                        get: { store.settings.httpsOnlyEnabled },
+                        set: { store.setHTTPSOnlyEnabled($0) }
+                    )
+                )
+
+                Toggle(
+                    "Strip Tracking Parameters (UTM / fbclid)",
+                    isOn: Binding(
+                        get: { store.settings.stripTrackingParameters },
+                        set: { store.setStripTrackingParameters($0) }
+                    )
+                )
+
+                Toggle(
+                    "Block JavaScript (Strict)",
+                    isOn: Binding(
+                        get: { store.settings.blockJavaScript },
+                        set: { store.setBlockJavaScript($0) }
+                    )
+                )
+
+                NavigationLink {
+                    AllowlistedSitesView(store: store)
+                } label: {
+                    HStack {
+                        Text("Allowlisted Sites")
+                        Spacer()
+                        Text("\(store.allowlistedHosts.count)")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+            } footer: {
+                Text("Offline WebKit Content Blocker lists run natively with zero remote filter requests. HTTPS-Only automatically falls back to HTTP if a site does not support TLS.")
             }
         }
+        .contentMargins(.bottom, 100, for: .scrollContent)
+        .navigationTitle("Shield & Protection")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 3. Media & PrismPlayer Sub-Page
+
+private struct MediaSettingsView: View {
+    @Bindable var store: BrowserStore
+
+    var body: some View {
+        List {
+            Section {
+                Toggle(
+                    "Video Detector & PrismPlayer Takeover",
+                    isOn: Binding(
+                        get: { store.settings.mediaInterceptionEnabled },
+                        set: { store.setMediaInterceptionEnabled($0) }
+                    )
+                )
+
+                Toggle(
+                    "Auto-Play Web Videos",
+                    isOn: Binding(
+                        get: { store.settings.autoPlayVideos },
+                        set: { store.setAutoPlayVideos($0) }
+                    )
+                )
+
+                Toggle(
+                    "Auto-Lock Landscape in Fullscreen",
+                    isOn: Binding(
+                        get: { store.settings.autoLockLandscapeInPlayer },
+                        set: { store.setAutoLockLandscapeInPlayer($0) }
+                    )
+                )
+            } footer: {
+                Text("When Auto-Lock Landscape in Fullscreen is off, PrismPlayer follows your phone's orientation and respects iOS Portrait Orientation Lock. When enabled, PrismDM detects playable HLS/MP4 streams across frames and upgrades fullscreen playback to the Liquid Glass PrismPlayer.")
+            }
+        }
+        .contentMargins(.bottom, 100, for: .scrollContent)
+        .navigationTitle("Media & PrismPlayer")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 4. Tabs & Performance Sub-Page
+
+private struct TabsPerformanceSettingsView: View {
+    @Bindable var store: BrowserStore
+
+    var body: some View {
+        List {
+            Section {
+                Stepper(
+                    "Active WebView Pool Limit: \(store.settings.maxLiveWebViews)",
+                    value: Binding(
+                        get: { store.settings.maxLiveWebViews },
+                        set: { store.setMaxLiveWebViews($0) }
+                    ),
+                    in: 2...8
+                )
+
+                Toggle(
+                    "Restore Tabs on Launch",
+                    isOn: Binding(
+                        get: { store.settings.restoreTabsOnStartup },
+                        set: { store.setRestoreTabsOnStartup($0) }
+                    )
+                )
+
+                Toggle(
+                    "Close Incognito Tabs When Backgrounded",
+                    isOn: Binding(
+                        get: { store.settings.autoCloseIncognitoOnBackground },
+                        set: { store.setAutoCloseIncognitoOnBackground($0) }
+                    )
+                )
+            } footer: {
+                Text("Inactive tabs beyond the pool limit are hibernated to disk snapshots to keep iPhone RAM usage low.")
+            }
+        }
+        .contentMargins(.bottom, 100, for: .scrollContent)
+        .navigationTitle("Tabs & Performance")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 5. Downloads & Engine Sub-Page
+
+private struct DownloadsSettingsView: View {
+    @Bindable var downloadStore: ParallelDownloadStore
+
+    var body: some View {
+        List {
+            Section("Parallel Download Engine (SDMCore)") {
+                Picker("Default HTTP Backend", selection: $downloadStore.preferredHTTPBackend) {
+                    Text("libcurl Multi-Range").tag(DownloadEngineKind.libcurl)
+                    Text("iOS Background URLSession").tag(DownloadEngineKind.urlSession)
+                }
+
+                Stepper(
+                    "Connections per Download: \(downloadStore.defaultConnectionsPerDownload)",
+                    value: $downloadStore.defaultConnectionsPerDownload,
+                    in: 1...16
+                )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Global Bandwidth Cap")
+                        Spacer()
+                        Text(downloadStore.globalBandwidthLimitBytesPerSec == 0
+                            ? "Unlimited"
+                            : "\(ByteCountFormatter.string(fromByteCount: Int64(downloadStore.globalBandwidthLimitBytesPerSec), countStyle: .file))/s")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(downloadStore.globalBandwidthLimitBytesPerSec) / 1_000_000.0 },
+                            set: { downloadStore.globalBandwidthLimitBytesPerSec = UInt64(($0 * 1_000_000.0).rounded()) }
+                        ),
+                        in: 0...50,
+                        step: 1
+                    )
+                    .tint(PrismBrandPalette.crimsonAccent)
+                }
+            }
+        }
+        .contentMargins(.bottom, 100, for: .scrollContent)
+        .navigationTitle("Downloads & Engine")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 6. Privacy, Security & Data Sub-Page
+
+private struct PrivacySecuritySettingsView: View {
+    @Bindable var store: BrowserStore
+
+    var body: some View {
+        List {
+            Section("Vault & App Privacy") {
+                Toggle(
+                    "Privacy Screen in App Switcher",
+                    isOn: Binding(
+                        get: { store.settings.privacyCurtainEnabled },
+                        set: { store.setPrivacyCurtainEnabled($0) }
+                    )
+                )
+
+                NavigationLink {
+                    VaultPINSetupView(authService: store.authService)
+                } label: {
+                    HStack {
+                        Label("Private Vault PIN", systemImage: "key.fill")
+                        Spacer()
+                        Text(store.authService.hasConfiguredPIN ? "Configured" : "Not Set")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Button("Lock Private Vault & Incognito Now", role: .destructive) {
+                    store.authService.lock()
+                    store.showToast("Private Vault & Incognito locked.")
+                }
+            }
+
+            Section("Browsing Data") {
+                NavigationLink {
+                    ClearBrowsingDataView(store: store)
+                } label: {
+                    Label("Clear Browsing Data…", systemImage: "trash")
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section("Session Diagnostics") {
+                LabeledContent("Active WebView Pool", value: "\(store.webViewPool.liveTabCount) / \(store.webViewPool.maxLiveWebViews)")
+                LabeledContent("Trackers Blocked This Session", value: "\(store.trackerMonitor.sessionTotalBlocked)")
+                LabeledContent("Pop-ups Blocked This Session", value: "\(store.blockedPopupsCount)")
+                LabeledContent("Offline Filter Shards", value: AdBlockManifestLoader.summary())
+            }
+        }
+        .contentMargins(.bottom, 100, for: .scrollContent)
+        .navigationTitle("Privacy, Security & Data")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - 7. About & Licenses Sub-Page
+
+private struct AboutAndLicensesSettingsView: View {
+    var body: some View {
+        List {
+            Section("Application") {
+                LabeledContent(
+                    "Version",
+                    value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+                )
+                LabeledContent(
+                    "Build",
+                    value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+                )
+            }
+
+            Section("Native Engines & Legal") {
+                LabeledContent("Download Core", value: ParallelDownloaderEngineDiagnostics.sdmCoreVersionSummary)
+                LabeledContent("HLS Remux Core", value: ParallelDownloaderEngineDiagnostics.ffmpegVersionSummary)
+                LabeledContent("Universal Player", value: PrismPlayerEngineDiagnostics.mpvAPIVersionSummary)
+                LabeledContent("Vault Archive", value: VaultEngineDiagnostics.archiveEngineSummary)
+                LabeledContent("Media Bridge", value: "Schema v\(MediaInterceptorBridgeInfo.loadSchemaVersion())")
+
+                NavigationLink("Engine & Open Source Licenses") {
+                    OpenSourceLicensesView()
+                }
+            }
+        }
+        .contentMargins(.bottom, 100, for: .scrollContent)
+        .navigationTitle("About & Licenses")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -501,6 +682,7 @@ private struct AllowlistedSitesView: View {
                 }
             }
         }
+        .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Allowlisted Sites")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -566,6 +748,7 @@ private struct ClearBrowsingDataView: View {
                 .disabled(!hasAnySelection || isClearing)
             }
         }
+        .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Clear Browsing Data")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(
@@ -679,6 +862,7 @@ private struct VaultPINSetupView: View {
                 }
             }
         }
+        .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Private Vault PIN")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -731,6 +915,7 @@ private struct OpenSourceLicensesView: View {
                 .padding(.vertical, 4)
             }
         }
+        .contentMargins(.bottom, 100, for: .scrollContent)
         .navigationTitle("Open Source Licenses")
         .navigationBarTitleDisplayMode(.inline)
     }

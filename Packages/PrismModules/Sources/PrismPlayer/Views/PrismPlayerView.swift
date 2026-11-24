@@ -46,7 +46,7 @@ public struct PrismPlayerView: UIViewControllerRepresentable {
         source: PlayableSource,
         initialStartSeconds: Double = 0,
         initialPlaybackRate: Float = 1.0,
-        autoLockLandscape: Bool = true,
+        autoLockLandscape: Bool = false,
         onDismiss: @escaping @MainActor () -> Void,
         onRequestDownload: (@MainActor (PlayableSource) -> Void)? = nil
     ) {
@@ -114,6 +114,7 @@ public struct PrismPlayerCanvasView: View {
     @State private var activeIndicator: ActivePlayerGestureIndicator?
     @State private var loadErrorMessage: String?
     @State private var hudAutoHideTask: Task<Void, Never>?
+    @State private var hasCleanedUp = false
 
     private var activeCoreKind: PlaybackCoreKind {
         source.preferredEngineType
@@ -168,7 +169,7 @@ public struct PrismPlayerCanvasView: View {
         source: PlayableSource,
         initialStartSeconds: Double = 0,
         initialPlaybackRate: Float = 1.0,
-        autoLockLandscape: Bool = true,
+        autoLockLandscape: Bool = false,
         onHUDChromeStateChanged: @escaping (Bool, Bool) -> Void,
         onDismiss: @escaping () -> Void,
         onRequestDownload: ((PlayableSource) -> Void)? = nil
@@ -256,7 +257,7 @@ public struct PrismPlayerCanvasView: View {
                 playbackRate: activeRate,
                 aspectMode: activeAspectMode,
                 isPiPSupported: activeCoreKind == .nativeAVPlayer && avEngine.isPiPSupported,
-                isLandscapeLocked: orientationController.isLandscapeLocked,
+                isLandscapeLocked: orientationController.isCurrentlyLandscape,
                 isHUDVisible: isHUDVisible,
                 isHUDLocked: isHUDLocked,
                 activeIndicator: activeIndicator,
@@ -321,9 +322,7 @@ public struct PrismPlayerCanvasView: View {
         }
         .task {
             brightnessVolumeController.beginSession()
-            if autoLockLandscape {
-                orientationController.lockLandscape()
-            }
+            orientationController.beginPlayerSession(autoLockLandscape: autoLockLandscape)
             onHUDChromeStateChanged(isHUDVisible, true)
             await startPlayback()
             scheduleHUDAutoHide()
@@ -401,11 +400,13 @@ public struct PrismPlayerCanvasView: View {
     }
 
     private func cleanupSession() {
+        guard !hasCleanedUp else { return }
+        hasCleanedUp = true
         hudAutoHideTask?.cancel()
         hudAutoHideTask = nil
         avEngine.teardown()
         mpvEngine.teardown()
         brightnessVolumeController.endSession()
-        orientationController.restoreDefaultOrientations()
+        orientationController.endPlayerSession()
     }
 }

@@ -19,7 +19,7 @@ public struct BrowserSettingsSnapshot: Codable, Sendable, Equatable {
     // Media & Player
     public var mediaInterceptionEnabled: Bool = true
     public var autoPlayVideos: Bool = true
-    public var autoLockLandscapeInPlayer: Bool = true
+    public var autoLockLandscapeInPlayer: Bool = false
 
     // Tabs & Privacy
     public var maxLiveWebViews: Int = BrowserEngineDefaults.maxLiveWebViews
@@ -38,8 +38,14 @@ public struct BrowserSettingsSnapshot: Codable, Sendable, Equatable {
 
     public static func load(from defaults: UserDefaults = .standard) -> BrowserSettingsSnapshot {
         guard let data = defaults.data(forKey: "prismdm.v2.browserSettings"),
-              let decoded = try? JSONDecoder().decode(BrowserSettingsSnapshot.self, from: data) else {
+              var decoded = try? JSONDecoder().decode(BrowserSettingsSnapshot.self, from: data) else {
+            defaults.set(true, forKey: "prismdm.v2.migratedAutoLockLandscapeDefaultOff")
             return BrowserSettingsSnapshot()
+        }
+        if !defaults.bool(forKey: "prismdm.v2.migratedAutoLockLandscapeDefaultOff") {
+            decoded.autoLockLandscapeInPlayer = false
+            decoded.save(to: defaults)
+            defaults.set(true, forKey: "prismdm.v2.migratedAutoLockLandscapeDefaultOff")
         }
         return decoded
     }
