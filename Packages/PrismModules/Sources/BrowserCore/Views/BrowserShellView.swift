@@ -6,7 +6,7 @@ import PrismPlayer
 import SDMCore
 import SwiftData
 import SwiftUI
-import Translation
+@preconcurrency import Translation
 import VaultManager
 import WebKit
 

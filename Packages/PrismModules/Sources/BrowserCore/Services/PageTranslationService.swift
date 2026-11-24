@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 import PrismCore
-import Translation
+@preconcurrency import Translation
 import WebKit
 
 public struct TranslationTargetLanguage: Identifiable, Hashable, Sendable {
