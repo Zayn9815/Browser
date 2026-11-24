@@ -217,8 +217,7 @@ public actor YTDLPDownloadWorker {
         defer { try? fm.removeItem(at: stageDir) }
 
         var headers = format.httpHeaders
-        if let sessionContext {
-            let targetURL = format.videoURL ?? format.audioURL ?? mediaInfo.sourceURL
+        if let sessionContext, let targetURL = format.videoURL ?? format.audioURL ?? sessionContext.pageReferer {
             for (k, v) in sessionContext.httpHeaderDictionary(for: targetURL) where headers[k] == nil {
                 headers[k] = v
             }
