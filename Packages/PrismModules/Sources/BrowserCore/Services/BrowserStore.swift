@@ -1,5 +1,6 @@
 import AdBlockEngine
 import Foundation
+import MediaInterceptor
 import Observation
 import ParallelDownloader
 import SwiftData
@@ -59,6 +60,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
 
     public let adBlockCompiler: AdBlockRuleCompiler
     public let trackerMonitor: TrackerShieldMonitor
+    public let mediaInterceptor: MediaInterceptorCoordinator
     public let webViewPool: WebViewLRUPool
     public var findInPageService: FindInPageService
     public let authService: BiometricAuthService
@@ -82,11 +84,17 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
         self.adBlockCompiler = adBlockCompiler
         let monitor = TrackerShieldMonitor()
         self.trackerMonitor = monitor
-        self.webViewPool = WebViewLRUPool(
+        let interceptor = MediaInterceptorCoordinator()
+        self.mediaInterceptor = interceptor
+        let pool = WebViewLRUPool(
             maxLiveWebViews: BrowserEngineDefaults.maxLiveWebViews,
             adBlockCompiler: adBlockCompiler,
             trackerMonitor: monitor
         )
+        pool.configureAdditionalScripts = { [weak interceptor] controller, tabID in
+            interceptor?.attach(to: controller, tabID: tabID)
+        }
+        self.webViewPool = pool
         self.findInPageService = FindInPageService()
         self.authService = authService
         self.archiveExporter = WebArchiveExporter(fileService: fileService)
@@ -255,6 +263,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
         guard let idx = tabs.firstIndex(where: { $0.id == tabID }) else { return }
         let removed = tabs.remove(at: idx)
         webViewPool.closeTab(tabID: removed.id, isIncognito: removed.isIncognito)
+        mediaInterceptor.clearTab(removed.id)
 
         if tabs.isEmpty {
             let fresh = BrowserTabState(title: "Start Page", urlString: "")
@@ -272,6 +281,9 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
     public func closeAllIncognitoTabs() {
         let privateIDs = incognitoTabs.map(\.id)
         webViewPool.purgeIncognitoCaches(incognitoTabIDs: privateIDs)
+        for id in privateIDs {
+            mediaInterceptor.clearTab(id)
+        }
         tabs.removeAll { $0.isIncognito }
         if tabs.isEmpty {
             let fresh = BrowserTabState(title: "Start Page", urlString: "")
@@ -480,6 +492,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
 
     public func navigationDidStartLoad(tabID: UUID, url: URL?) {
         trackerMonitor.resetCount(for: tabID)
+        mediaInterceptor.clearTab(tabID)
         if let idx = tabs.firstIndex(where: { $0.id == tabID }) {
             tabs[idx].isLoading = true
             tabs[idx].blockedTrackerCount = 0

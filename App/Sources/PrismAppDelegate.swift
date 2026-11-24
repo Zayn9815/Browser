@@ -1,14 +1,6 @@
 import ParallelDownloader
+import PrismPlayer
 import UIKit
-
-@MainActor
-public enum PrismOrientationLockState {
-    public static var supportedMask: UIInterfaceOrientationMask = [
-        .portrait,
-        .landscapeLeft,
-        .landscapeRight,
-    ]
-}
 
 private final class BackgroundCompletionBox: @unchecked Sendable {
     private let handler: () -> Void
@@ -29,7 +21,7 @@ public final class PrismAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
-        PrismOrientationLockState.supportedMask
+        OrientationLockController.shared.supportedMask
     }
 
     public func application(
