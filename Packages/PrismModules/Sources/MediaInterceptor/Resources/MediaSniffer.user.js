@@ -246,6 +246,7 @@
     }
 
     function attemptFullscreenIntercept(video) {
+        if (window.__prismMediaInterceptionEnabled === false) return false;
         if (!video || isVideoDRM(video)) return false;
         const resolved = extractVideoPlayableURL(video);
         if (!resolved) return false;

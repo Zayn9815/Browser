@@ -48,6 +48,23 @@ public struct ShieldAndSiteMenuSheet: View {
                 }
 
                 Section("Page Appearance & Reading") {
+                    Stepper(
+                        value: Binding(
+                            get: { store.settings.defaultPageZoom },
+                            set: { store.setDefaultPageZoom($0) }
+                        ),
+                        in: 0.75...1.50,
+                        step: 0.05
+                    ) {
+                        HStack {
+                            Label("Page Zoom", systemImage: "textformat.size")
+                            Spacer()
+                            Text("\(Int((store.settings.defaultPageZoom * 100).rounded()))%")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    }
+
                     Toggle(
                         "Dark Mode on This Site",
                         isOn: Binding(
@@ -63,6 +80,13 @@ public struct ShieldAndSiteMenuSheet: View {
                             set: { _ in store.toggleActiveTabDesktopUserAgent() }
                         )
                     )
+
+                    Button {
+                        dismiss()
+                        store.navigateToHomepage()
+                    } label: {
+                        Label("Go to Start Page / Home", systemImage: "house")
+                    }
 
                     Button {
                         dismiss()

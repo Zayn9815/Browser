@@ -93,8 +93,14 @@ for s in shards:
     with open(p, "r", encoding="utf-8") as sf:
         rules = json.load(sf)
     assert isinstance(rules, list) and 0 < len(rules) <= 150000, f"Invalid rule count {len(rules)} in {p}"
+    for r in rules:
+        if r.get("action", {}).get("type") == "block":
+            trig = r.get("trigger", {})
+            uf = trig.get("url-filter", "")
+            if not trig.get("if-domain") and uf in (".*", "^.*"):
+                raise AssertionError(f"Unscoped wildcard block rule found in {p}: {r}")
     total += len(rules)
-print(f"[verify] Verified {len(shards)} AdBlock shards totaling {total} rules.")
+print(f"[verify] Verified {len(shards)} AdBlock shards totaling {total} rules (zero unscoped wildcard blockers).")
 PY
 
 # 7. Verify non-trivial bundle size (> 15 MB with native FFmpeg/libmpv/libcurl)

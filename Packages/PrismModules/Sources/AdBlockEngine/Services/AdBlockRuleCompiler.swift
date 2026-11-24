@@ -37,30 +37,40 @@ public final class AdBlockRuleCompiler: AdBlockRuleProviding {
     public private(set) var lastErrorMessage: String?
 
     private let bundle: Bundle
-    private var compiledBaseShards: [WKContentRuleList] = []
+    private var compiledBaseShards: [(sourceList: String, list: WKContentRuleList)] = []
     private var cachedAllowlistKey: String?
     private var cachedAllowlistRuleList: WKContentRuleList?
-    private var preparationTask: Task<[WKContentRuleList], Error>?
+    private var preparationTask: Task<[(sourceList: String, list: WKContentRuleList)], Error>?
 
     public init(bundle: Bundle = .main) {
         self.bundle = bundle
     }
 
     public func prepareRuleLists(allowlistedHosts: Set<String> = []) async throws -> [WKContentRuleList] {
-        let baseLists: [WKContentRuleList]
+        try await prepareRuleLists(
+            allowlistedHosts: allowlistedHosts,
+            enabledSourceLists: ["easylist", "easyprivacy"]
+        )
+    }
+
+    public func prepareRuleLists(
+        allowlistedHosts: Set<String> = [],
+        enabledSourceLists: Set<String>
+    ) async throws -> [WKContentRuleList] {
+        let baseEntries: [(sourceList: String, list: WKContentRuleList)]
         if !compiledBaseShards.isEmpty {
-            baseLists = compiledBaseShards
+            baseEntries = compiledBaseShards
         } else if let inFlight = preparationTask {
-            baseLists = try await inFlight.value
+            baseEntries = try await inFlight.value
         } else {
-            let task = Task { @MainActor [weak self] () throws -> [WKContentRuleList] in
+            let task = Task { @MainActor [weak self] () throws -> [(sourceList: String, list: WKContentRuleList)] in
                 guard let self else { return [] }
                 return try await self.compileOrLookupBaseShards()
             }
             preparationTask = task
             do {
-                baseLists = try await task.value
-                compiledBaseShards = baseLists
+                baseEntries = try await task.value
+                compiledBaseShards = baseEntries
                 preparationTask = nil
             } catch {
                 preparationTask = nil
@@ -69,8 +79,12 @@ public final class AdBlockRuleCompiler: AdBlockRuleProviding {
             }
         }
 
-        var combined = baseLists
-        if let allowlist = try await compileAllowlistIfNeeded(hosts: allowlistedHosts) {
+        let normalizedSources = Set(enabledSourceLists.map { $0.lowercased() })
+        var combined = baseEntries
+            .filter { normalizedSources.contains($0.sourceList.lowercased()) }
+            .map(\.list)
+
+        if !combined.isEmpty, let allowlist = try await compileAllowlistIfNeeded(hosts: allowlistedHosts) {
             combined.append(allowlist)
         }
         compiledRuleLists = combined
@@ -83,9 +97,23 @@ public final class AdBlockRuleCompiler: AdBlockRuleProviding {
         siteHost: String?,
         allowlistedHosts: Set<String>
     ) async {
+        await apply(
+            to: userContentController,
+            siteHost: siteHost,
+            allowlistedHosts: allowlistedHosts,
+            enabledSourceLists: ["easylist", "easyprivacy"]
+        )
+    }
+
+    public func apply(
+        to userContentController: WKUserContentController,
+        siteHost: String?,
+        allowlistedHosts: Set<String>,
+        enabledSourceLists: Set<String>
+    ) async {
         userContentController.removeAllContentRuleLists()
 
-        if allowlistedHosts.contains("*") {
+        if allowlistedHosts.contains("*") || enabledSourceLists.isEmpty {
             return
         }
 
@@ -94,7 +122,10 @@ public final class AdBlockRuleCompiler: AdBlockRuleProviding {
         }
 
         do {
-            let lists = try await prepareRuleLists(allowlistedHosts: allowlistedHosts)
+            let lists = try await prepareRuleLists(
+                allowlistedHosts: allowlistedHosts,
+                enabledSourceLists: enabledSourceLists
+            )
             for list in lists {
                 userContentController.add(list)
             }
@@ -141,7 +172,7 @@ public final class AdBlockRuleCompiler: AdBlockRuleProviding {
 
     // MARK: - Private Compilation & Disk Caching
 
-    private func compileOrLookupBaseShards() async throws -> [WKContentRuleList] {
+    private func compileOrLookupBaseShards() async throws -> [(sourceList: String, list: WKContentRuleList)] {
         guard let manifest = AdBlockManifestLoader.loadBundledManifest(in: bundle) else {
             throw AdBlockCompilerError.manifestMissing
         }
@@ -149,12 +180,12 @@ public final class AdBlockRuleCompiler: AdBlockRuleProviding {
         loadedManifest = manifest
 
         let store = WKContentRuleListStore.default()!
-        var results: [WKContentRuleList] = []
+        var results: [(sourceList: String, list: WKContentRuleList)] = []
         var activeRuleCount = 0
 
         for shard in manifest.shards {
             if let cached = await lookupRuleList(identifier: shard.identifier, in: store) {
-                results.append(cached)
+                results.append((shard.sourceList, cached))
                 activeRuleCount += shard.ruleCount
                 continue
             }
@@ -171,7 +202,7 @@ public final class AdBlockRuleCompiler: AdBlockRuleProviding {
 
             let jsonString = try String(contentsOf: fileURL, encoding: .utf8)
             let compiled = try await compileRuleList(identifier: shard.identifier, json: jsonString, in: store)
-            results.append(compiled)
+            results.append((shard.sourceList, compiled))
             activeRuleCount += shard.ruleCount
         }
 

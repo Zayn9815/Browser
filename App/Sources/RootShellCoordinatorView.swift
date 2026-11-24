@@ -74,7 +74,7 @@ public struct RootShellCoordinatorView: View {
                 source: handoff.source,
                 initialStartSeconds: handoff.startTimeSeconds,
                 initialPlaybackRate: handoff.playbackRate,
-                autoLockLandscape: true,
+                autoLockLandscape: browserStore.settings.autoLockLandscapeInPlayer,
                 onDismiss: {
                     activePlayerHandoff = nil
                 },

@@ -32,7 +32,7 @@ public struct PrismDMApp: App {
                 )
                 .modelContainer(modelContainer)
 
-                if scenePhase != .active {
+                if scenePhase != .active && browserStore.settings.privacyCurtainEnabled {
                     ZStack {
                         PrismBrandPalette.obsidianBackground
                             .ignoresSafeArea()

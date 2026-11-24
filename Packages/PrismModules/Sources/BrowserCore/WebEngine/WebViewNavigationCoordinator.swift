@@ -21,11 +21,15 @@ public enum BrowserDialogRequest: Identifiable {
 
 @MainActor
 public protocol WebViewNavigationEventDelegate: AnyObject {
+    var currentSettingsSnapshot: BrowserSettingsSnapshot { get }
     func navigationDidStartLoad(tabID: UUID, url: URL?)
     func navigationDidCommit(tabID: UUID, url: URL?, title: String?)
     func navigationDidFinish(tabID: UUID, url: URL?, title: String?)
     func navigationDidFail(tabID: UUID, error: Error)
     func navigationDidRequestNewTab(url: URL, isIncognito: Bool)
+    func navigationDidRequestPopup(_ session: BrowserPopupSession)
+    func navigationDidClosePopup(webView: WKWebView)
+    func navigationDidBlockPopup(tabID: UUID)
     func navigationDidRequestDialog(_ dialog: BrowserDialogRequest)
     func navigationDidInterceptDownload(
         tabID: UUID,
@@ -46,6 +50,8 @@ public final class WebViewNavigationCoordinator: NSObject, WKNavigationDelegate,
 
     private var downloadMetadataByTask: [ObjectIdentifier: (suggestedFilename: String?, mimeType: String?)] = [:]
     private var crashTimestamps: [Date] = []
+    private var upgradedHTTPRequests: [String: URL] = [:]
+    private var httpsFallbackHosts: Set<String> = []
 
     public init(
         tabID: UUID,
@@ -74,9 +80,12 @@ public final class WebViewNavigationCoordinator: NSObject, WKNavigationDelegate,
             return .allow
         }
 
+        let settings = eventDelegate?.currentSettingsSnapshot ?? BrowserSettingsSnapshot()
         let scheme = url.scheme?.lowercased() ?? ""
         if ["tel", "mailto", "sms", "facetime"].contains(scheme) {
-            await UIApplication.shared.open(url)
+            if settings.openExternalAppLinks {
+                await UIApplication.shared.open(url)
+            }
             return .cancel
         }
 
@@ -84,8 +93,36 @@ public final class WebViewNavigationCoordinator: NSObject, WKNavigationDelegate,
             return .download
         }
 
-        // Handle target="_blank" links cleanly by spawning a new tab
+        // Main-frame privacy & security URL transformations (tracking param stripping + HTTPS-Only upgrade)
+        if navigationAction.targetFrame?.isMainFrame == true,
+           ["http", "https"].contains(scheme),
+           (navigationAction.request.httpMethod ?? "GET").uppercased() == "GET" {
+            var transformed = url
+            if settings.stripTrackingParameters {
+                transformed = URLTrackingSanitizer.sanitize(transformed)
+            }
+            let host = (transformed.host ?? "").lowercased()
+            if settings.httpsOnlyEnabled && transformed.scheme?.lowercased() == "http" && !httpsFallbackHosts.contains(host) {
+                let upgraded = URLTrackingSanitizer.upgradeToHTTPSIfNeeded(transformed, enabled: true)
+                if upgraded != transformed {
+                    upgradedHTTPRequests[upgraded.absoluteString] = transformed
+                    transformed = upgraded
+                }
+            }
+            if transformed != url {
+                var newRequest = navigationAction.request
+                newRequest.url = transformed
+                webView.load(newRequest)
+                return .cancel
+            }
+        }
+
+        // Handle target="_blank" links cleanly by spawning a new tab (or blocking script popups)
         if navigationAction.targetFrame == nil, ["http", "https"].contains(scheme) {
+            if settings.blockPopups && navigationAction.navigationType == .other && !Self.isLikelyAuthPopup(url: url) {
+                eventDelegate?.navigationDidBlockPopup(tabID: tabID)
+                return .cancel
+            }
             eventDelegate?.navigationDidRequestNewTab(url: url, isIncognito: isIncognito)
             return .cancel
         }
@@ -131,6 +168,9 @@ public final class WebViewNavigationCoordinator: NSObject, WKNavigationDelegate,
     }
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        if let current = webView.url?.absoluteString {
+            upgradedHTTPRequests.removeValue(forKey: current)
+        }
         eventDelegate?.navigationDidCommit(tabID: tabID, url: webView.url, title: webView.title)
     }
 
@@ -149,6 +189,17 @@ public final class WebViewNavigationCoordinator: NSObject, WKNavigationDelegate,
         if nsError.code == NSURLErrorCancelled || (nsError.domain == "WebKitErrorDomain" && nsError.code == 102) {
             return
         }
+
+        // Graceful HTTP fallback if an automatic HTTPS-Only upgrade failed TLS/connection
+        if let failingURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL) ?? webView.url,
+           let originalHTTP = upgradedHTTPRequests.removeValue(forKey: failingURL.absoluteString) {
+            if let host = originalHTTP.host?.lowercased() {
+                httpsFallbackHosts.insert(host)
+            }
+            webView.load(URLRequest(url: originalHTTP))
+            return
+        }
+
         eventDelegate?.navigationDidFail(tabID: tabID, error: error)
     }
 
@@ -286,10 +337,63 @@ public final class WebViewNavigationCoordinator: NSObject, WKNavigationDelegate,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url {
+        let settings = eventDelegate?.currentSettingsSnapshot ?? BrowserSettingsSnapshot()
+        let url = navigationAction.request.url
+        let isAuthFlow = Self.isLikelyAuthPopup(url: url)
+        let hasExplicitPopupDimensions = (windowFeatures.width != nil || windowFeatures.height != nil)
+
+        // Preserve window.opener for OAuth ("Sign in with Google", Apple, GitHub, Firebase) popups
+        if isAuthFlow || (hasExplicitPopupDimensions && (url == nil || url?.absoluteString == "about:blank")) {
+            let popupWebView = WKWebView(frame: .zero, configuration: configuration)
+            popupWebView.customUserAgent = webView.customUserAgent ?? BrowserEngineDefaults.mobileUserAgent
+            popupWebView.allowsBackForwardNavigationGestures = true
+            popupWebView.isOpaque = true
+            popupWebView.backgroundColor = .systemBackground
+            popupWebView.uiDelegate = self
+            eventDelegate?.navigationDidRequestPopup(BrowserPopupSession(webView: popupWebView))
+            return popupWebView
+        }
+
+        if settings.blockPopups && navigationAction.navigationType == .other {
+            eventDelegate?.navigationDidBlockPopup(tabID: tabID)
+            return nil
+        }
+
+        if let url, let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme) {
             eventDelegate?.navigationDidRequestNewTab(url: url, isIncognito: isIncognito)
         }
         return nil
+    }
+
+    public func webViewDidClose(_ webView: WKWebView) {
+        eventDelegate?.navigationDidClosePopup(webView: webView)
+    }
+
+    private static func isLikelyAuthPopup(url: URL?) -> Bool {
+        guard let url else { return false }
+        let host = (url.host ?? "").lowercased()
+        let full = url.absoluteString.lowercased()
+        let authHosts = [
+            "accounts.google.com",
+            "accounts.youtube.com",
+            "appleid.apple.com",
+            "login.microsoftonline.com",
+            "login.live.com",
+            "github.com",
+            "discord.com",
+            "twitter.com",
+            "x.com",
+            "facebook.com",
+        ]
+        if authHosts.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) {
+            if host.contains("accounts.google.") || host.contains("appleid.apple.") || host.contains("login.microsoftonline.") {
+                return true
+            }
+            if full.contains("oauth") || full.contains("login") || full.contains("signin") || full.contains("authorize") {
+                return true
+            }
+        }
+        return full.contains("/oauth") || full.contains("oauth2") || full.contains("openid")
     }
 
     public func webView(

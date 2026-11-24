@@ -191,6 +191,7 @@ private func convertABPLineToRule(_ rawLine: String) -> ContentBlockerRule? {
 
     var resourceTypes: Set<String> = []
     var loadTypes: [String]? = nil
+    var hasSubdocument = false
     var ifDomains: [String] = []
     var unlessDomains: [String] = []
     var caseSensitive: Bool? = nil
@@ -198,6 +199,7 @@ private func convertABPLineToRule(_ rawLine: String) -> ContentBlockerRule? {
     if !optionsPart.isEmpty {
         for rawOpt in optionsPart.split(separator: ",") {
             let opt = String(rawOpt).trimmingCharacters(in: .whitespaces).lowercased()
+            guard !opt.isEmpty else { continue }
             switch opt {
             case "third-party", "3p":
                 loadTypes = ["third-party"]
@@ -212,6 +214,7 @@ private func convertABPLineToRule(_ rawLine: String) -> ContentBlockerRule? {
             case "xmlhttprequest", "xhr", "fetch":
                 resourceTypes.insert("raw")
             case "subdocument":
+                hasSubdocument = true
                 resourceTypes.insert("document")
             case "font":
                 resourceTypes.insert("font")
@@ -221,25 +224,48 @@ private func convertABPLineToRule(_ rawLine: String) -> ContentBlockerRule? {
                 resourceTypes.insert("popup")
             case "match-case":
                 caseSensitive = true
-            case "document", "elemhide", "generichide", "genericblock", "important", "badfilter", "csp", "redirect", "removeparam":
-                // Skip rules relying on non-WebKit modifiers
-                if opt == "badfilter" || opt == "csp" || opt == "redirect" || opt == "removeparam" {
-                    return nil
-                }
+            case "important":
+                // Safe priority hint with no narrowing semantic
+                continue
             default:
                 if opt.hasPrefix("domain=") {
                     let domList = opt.dropFirst("domain=".count)
+                    var parsedAnyDomain = false
                     for token in domList.split(separator: "|") {
                         let s = String(token)
                         if s.hasPrefix("~") {
-                            if let d = normalizeDomainToken(String(s.dropFirst())) { unlessDomains.append(d) }
+                            if let d = normalizeDomainToken(String(s.dropFirst())) {
+                                unlessDomains.append(d)
+                                parsedAnyDomain = true
+                            }
                         } else {
-                            if let d = normalizeDomainToken(s) { ifDomains.append(d) }
+                            if let d = normalizeDomainToken(s) {
+                                ifDomains.append(d)
+                                parsedAnyDomain = true
+                            }
                         }
                     }
+                    // Never drop an unparseable domain= scope into a global block rule
+                    if !parsedAnyDomain {
+                        return nil
+                    }
+                } else {
+                    // Reject ANY unsupported or negated modifier (ping, websocket, object, other,
+                    // ~script, ~image, ~stylesheet, csp=..., redirect=..., rewrite=..., document, elemhide, etc.)
+                    // so a block rule can never silently widen to block all resources.
+                    return nil
                 }
             }
         }
+    }
+
+    // In WebKit Content Blocker, resource-type "document" matches top-level pages AND iframes.
+    // Restrict subdocument rules strictly to third-party loads so main-frame navigations are never blocked.
+    if hasSubdocument {
+        if loadTypes == ["first-party"] {
+            return nil
+        }
+        loadTypes = ["third-party"]
     }
 
     if !ifDomains.isEmpty && !unlessDomains.isEmpty {
@@ -268,6 +294,15 @@ private func convertABPLineToRule(_ rawLine: String) -> ContentBlockerRule? {
 
     guard !body.isEmpty else { return nil }
 
+    // Safety guard: never allow an unscoped block rule with fewer than 3 literal characters
+    // (prevents wildcard catch-all rules like * or ||* from breaking all websites).
+    if !isException && ifDomains.isEmpty {
+        let literalChars = body.filter { $0 != "*" && $0 != "^" && $0 != "|" }
+        if literalChars.count < 3 {
+            return nil
+        }
+    }
+
     if anchorStartDomain {
         regex += "^https?://+([^:/]+\\.)?"
     } else if anchorStartExact {
@@ -289,6 +324,14 @@ private func convertABPLineToRule(_ rawLine: String) -> ContentBlockerRule? {
     }
 
     guard isValidWebKitRegex(regex) else { return nil }
+
+    // Final invariant: never emit a global wildcard block rule without an explicit if-domain scope.
+    if !isException && ifDomains.isEmpty {
+        let stripped = regex.replacingOccurrences(of: ".*", with: "")
+        if stripped.isEmpty || stripped == "^" || stripped == "^https?://+([^:/]+\\.)?" {
+            return nil
+        }
+    }
 
     let sortedTypes = resourceTypes.isEmpty ? nil : resourceTypes.sorted()
     return ContentBlockerRule(
@@ -414,6 +457,18 @@ do {
         let orderedRules = blockRules + exceptionRules
         guard !orderedRules.isEmpty else {
             throw NSError(domain: "AdBlockBuilder", code: 3, userInfo: [NSLocalizedDescriptionKey: "Converted 0 rules for \(source.name)"])
+        }
+
+        // Build-time safety invariant: verify zero global wildcard block rules slipped through
+        for rule in blockRules where rule.action.type == "block" {
+            let hasDomainScope = !(rule.trigger.ifDomain?.isEmpty ?? true)
+            if !hasDomainScope && (rule.trigger.urlFilter == ".*" || rule.trigger.urlFilter == "^.*") {
+                throw NSError(
+                    domain: "AdBlockBuilder",
+                    code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "Safety check failed: unscoped wildcard block rule detected in \(source.name)"]
+                )
+            }
         }
 
         let shardCap = options.maxRulesPerShard

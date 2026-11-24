@@ -5,7 +5,7 @@ import WebKit
 
 @MainActor
 public final class WebViewLRUPool {
-    public let maxLiveWebViews: Int
+    public private(set) var maxLiveWebViews: Int
     public var configureAdditionalScripts: ((WKUserContentController, UUID) -> Void)?
 
     private var liveWebViews: [UUID: WKWebView] = [:]
@@ -27,7 +27,7 @@ public final class WebViewLRUPool {
         adBlockCompiler: AdBlockRuleCompiler = .shared,
         trackerMonitor: TrackerShieldMonitor
     ) {
-        self.maxLiveWebViews = max(1, maxLiveWebViews)
+        self.maxLiveWebViews = max(2, min(8, maxLiveWebViews))
         self.adBlockCompiler = adBlockCompiler
         self.trackerMonitor = trackerMonitor
 
@@ -59,6 +59,15 @@ public final class WebViewLRUPool {
         liveWebViews.count
     }
 
+    public func setMaxLiveWebViews(_ limit: Int, activeTabID: UUID?) {
+        let clamped = max(2, min(8, limit))
+        maxLiveWebViews = clamped
+        while liveWebViews.count > clamped,
+              let victimID = accessOrder.first(where: { $0 != activeTabID }) {
+            evict(tabID: victimID, isIncognito: isTabIncognito(victimID))
+        }
+    }
+
     public func existingWebView(for tabID: UUID) -> WKWebView? {
         liveWebViews[tabID]
     }
@@ -68,6 +77,7 @@ public final class WebViewLRUPool {
         for tab: BrowserTabState,
         globalDarkMode: Bool,
         allowlistedHosts: Set<String>,
+        settings: BrowserSettingsSnapshot = BrowserSettingsSnapshot(),
         delegate: any WebViewNavigationEventDelegate
     ) -> WKWebView {
         if let existing = liveWebViews[tab.id] {
@@ -75,25 +85,32 @@ public final class WebViewLRUPool {
             return existing
         }
 
-        // Enforce strict 4-tab live WebView cap before creating a new instance
+        // Enforce strict live WebView LRU cap before creating a new instance
         while liveWebViews.count >= maxLiveWebViews, let victimID = accessOrder.first(where: { $0 != tab.id }) {
             evict(tabID: victimID, isIncognito: isTabIncognito(victimID))
         }
 
+        let initialDarkMode = tab.darkModeOverride ?? globalDarkMode
         let config = makeConfiguration(
             tabID: tab.id,
             isIncognito: tab.isIncognito,
-            initialDarkMode: tab.darkModeOverride ?? globalDarkMode
+            initialDarkMode: initialDarkMode,
+            settings: settings
         )
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsLinkPreview = true
         webView.isFindInteractionEnabled = true
-        webView.isOpaque = false
-        webView.backgroundColor = UIColor(red: 10.0 / 255.0, green: 10.0 / 255.0, blue: 15.0 / 255.0, alpha: 1.0)
-        webView.scrollView.backgroundColor = webView.backgroundColor
+        // Keep WebView opaque with a standard canvas so light or minimally-styled sites never render black-on-black text
+        webView.isOpaque = true
+        let canvasColor: UIColor = initialDarkMode
+            ? UIColor(red: 14.0 / 255.0, green: 14.0 / 255.0, blue: 20.0 / 255.0, alpha: 1.0)
+            : .white
+        webView.backgroundColor = canvasColor
+        webView.scrollView.backgroundColor = canvasColor
         webView.scrollView.contentInsetAdjustmentBehavior = .automatic
+        webView.pageZoom = settings.defaultPageZoom
         webView.customUserAgent = tab.preferDesktopUserAgent
             ? BrowserEngineDefaults.desktopUserAgent
             : BrowserEngineDefaults.mobileUserAgent
@@ -111,12 +128,14 @@ public final class WebViewLRUPool {
 
         // Apply offline sharded AdBlock rules asynchronously
         let siteHost = tab.currentURL?.host?.lowercased()
+        let enabledLists = settings.enabledAdBlockSourceLists
         Task { @MainActor [weak self, weak webView] in
             guard let self, let webView else { return }
             await self.adBlockCompiler.apply(
                 to: webView.configuration.userContentController,
                 siteHost: siteHost,
-                allowlistedHosts: allowlistedHosts
+                allowlistedHosts: allowlistedHosts,
+                enabledSourceLists: enabledLists
             )
         }
 
@@ -232,19 +251,69 @@ public final class WebViewLRUPool {
 
     public func applyDarkMode(_ enabled: Bool, to tabID: UUID) {
         guard let webView = liveWebViews[tabID] else { return }
+        let canvasColor: UIColor = enabled
+            ? UIColor(red: 14.0 / 255.0, green: 14.0 / 255.0, blue: 20.0 / 255.0, alpha: 1.0)
+            : .white
+        webView.backgroundColor = canvasColor
+        webView.scrollView.backgroundColor = canvasColor
         let js = "window.__prismInitialDarkMode = \(enabled ? "true" : "false"); if (window.__prismSetDarkMode) { window.__prismSetDarkMode(\(enabled ? "true" : "false")); }"
         webView.evaluateJavaScript(js, in: nil, in: .page) { _ in }
     }
 
-    public func applyAdBlockRules(to tabID: UUID, siteHost: String?, allowlistedHosts: Set<String>) {
+    public func applyPageZoom(_ zoom: Double) {
+        let clamped = max(0.75, min(1.50, zoom))
+        for webView in liveWebViews.values {
+            webView.pageZoom = clamped
+        }
+    }
+
+    public func applyJavaScriptBlocking(_ blockJS: Bool, reloadTabID: UUID?) {
+        for webView in liveWebViews.values {
+            webView.configuration.defaultWebpagePreferences.allowsContentJavaScript = !blockJS
+        }
+        if let reloadTabID {
+            liveWebViews[reloadTabID]?.reload()
+        }
+    }
+
+    public func applyPopupBlocking(_ blockPopups: Bool) {
+        for webView in liveWebViews.values {
+            webView.configuration.preferences.javaScriptCanOpenWindowsAutomatically = !blockPopups
+        }
+    }
+
+    public func applyMediaInterceptionEnabled(_ enabled: Bool) {
+        let js = "window.__prismMediaInterceptionEnabled = \(enabled ? "true" : "false");"
+        for webView in liveWebViews.values {
+            webView.evaluateJavaScript(js, in: nil, in: .page) { _ in }
+        }
+    }
+
+    public func applyAdBlockRules(
+        to tabID: UUID,
+        siteHost: String?,
+        allowlistedHosts: Set<String>,
+        enabledSourceLists: Set<String> = ["easylist", "easyprivacy"]
+    ) {
         guard let webView = liveWebViews[tabID] else { return }
         Task { @MainActor [weak self, weak webView] in
             guard let self, let webView else { return }
             await self.adBlockCompiler.apply(
                 to: webView.configuration.userContentController,
                 siteHost: siteHost,
-                allowlistedHosts: allowlistedHosts
+                allowlistedHosts: allowlistedHosts,
+                enabledSourceLists: enabledSourceLists
             )
+        }
+    }
+
+    public func clearDiskSnapshotsAndStates() {
+        for dir in [statesDirectory, snapshotsDirectory] {
+            if let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
+                for file in files {
+                    try? FileManager.default.removeItem(at: file)
+                }
+            }
         }
     }
 
@@ -253,25 +322,30 @@ public final class WebViewLRUPool {
     private func makeConfiguration(
         tabID: UUID,
         isIncognito: Bool,
-        initialDarkMode: Bool
+        initialDarkMode: Bool,
+        settings: BrowserSettingsSnapshot
     ) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = isIncognito ? .nonPersistent() : .default()
         config.allowsInlineMediaPlayback = true
         config.allowsPictureInPictureMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = []
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        config.mediaTypesRequiringUserActionForPlayback = settings.autoPlayVideos ? [] : .all
+        config.defaultWebpagePreferences.allowsContentJavaScript = !settings.blockJavaScript
+        config.preferences.javaScriptCanOpenWindowsAutomatically = !settings.blockPopups
 
         let controller = config.userContentController
 
-        // 1. Dark Mode flag + FOUC-free atDocumentStart CSS injector in .page world
-        let darkFlagScript = WKUserScript(
-            source: "window.__prismInitialDarkMode = \(initialDarkMode ? "true" : "false");",
+        // 1. Dark Mode + Media Interception flags injected atDocumentStart in .page world
+        let flagsScript = WKUserScript(
+            source: """
+            window.__prismInitialDarkMode = \(initialDarkMode ? "true" : "false");
+            window.__prismMediaInterceptionEnabled = \(settings.mediaInterceptionEnabled ? "true" : "false");
+            """,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false,
             in: .page
         )
-        controller.addUserScript(darkFlagScript)
+        controller.addUserScript(flagsScript)
 
         if let darkURL = Bundle.module.url(forResource: "DarkModeInjector.user", withExtension: "js"),
            let darkSource = try? String(contentsOf: darkURL, encoding: .utf8) {
@@ -312,7 +386,7 @@ public final class WebViewLRUPool {
         // 3. Tracker telemetry isolated in .defaultClient world
         trackerMonitor.attach(to: controller, tabID: tabID)
 
-        // 4. Extension point for Phase 3 MediaInterceptor (.page world cross-frame video sniffer)
+        // 4. Extension point for MediaInterceptor (.page world cross-frame video sniffer)
         configureAdditionalScripts?(controller, tabID)
 
         return config

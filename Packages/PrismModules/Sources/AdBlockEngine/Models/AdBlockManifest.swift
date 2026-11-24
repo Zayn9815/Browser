@@ -53,6 +53,12 @@ public protocol AdBlockRuleProviding: AnyObject {
     var compiledRuleLists: [WKContentRuleList] { get }
     func prepareRuleLists(allowlistedHosts: Set<String>) async throws -> [WKContentRuleList]
     func apply(to userContentController: WKUserContentController, siteHost: String?, allowlistedHosts: Set<String>) async
+    func apply(
+        to userContentController: WKUserContentController,
+        siteHost: String?,
+        allowlistedHosts: Set<String>,
+        enabledSourceLists: Set<String>
+    ) async
 }
 
 public enum AdBlockManifestLoader: Sendable {

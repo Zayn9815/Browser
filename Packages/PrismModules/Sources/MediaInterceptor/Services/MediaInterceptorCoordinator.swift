@@ -28,6 +28,7 @@ public struct FullscreenPlaybackHandoff: Identifiable, Sendable, Equatable {
 public final class MediaInterceptorCoordinator: PrismScriptMessageHandling {
     public private(set) var candidatesByTab: [UUID: [InterceptedMediaItem]] = [:]
     public private(set) var drmBlockedTabs: Set<UUID> = []
+    public var isEnabled: Bool = true
 
     public var pendingQualityPickerItem: InterceptedMediaItem?
     public var onFullscreenHandoff: ((FullscreenPlaybackHandoff) -> Void)?
@@ -69,19 +70,20 @@ public final class MediaInterceptorCoordinator: PrismScriptMessageHandling {
     }
 
     public func activeCandidate(for tabID: UUID) -> InterceptedMediaItem? {
-        guard !drmBlockedTabs.contains(tabID) else { return nil }
+        guard isEnabled, !drmBlockedTabs.contains(tabID) else { return nil }
         return candidatesByTab[tabID]?.last(where: { !$0.isDRMProtected })
     }
 
     public func allCandidates(for tabID: UUID) -> [InterceptedMediaItem] {
-        guard !drmBlockedTabs.contains(tabID) else { return [] }
+        guard isEnabled, !drmBlockedTabs.contains(tabID) else { return [] }
         return (candidatesByTab[tabID] ?? []).filter { !$0.isDRMProtected }
     }
 
     // MARK: - PrismScriptMessageHandling
 
     public func handleScriptMessage(_ message: WKScriptMessage, for tabID: UUID) {
-        guard message.name == MediaInterceptorBridgeInfo.messageHandlerName,
+        guard isEnabled,
+              message.name == MediaInterceptorBridgeInfo.messageHandlerName,
               let envelope = decodeValidatedEnvelope(from: message.body) else {
             return
         }
