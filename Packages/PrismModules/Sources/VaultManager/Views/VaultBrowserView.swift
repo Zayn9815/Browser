@@ -122,6 +122,10 @@ public struct VaultBrowserView: View {
         !isPrivateMode || authService.isPrivateUnlocked
     }
 
+    private var reloadTaskKey: String {
+        "\(isPrivateMode)-\(currentRelativePath)-\(authService.isPrivateUnlocked)"
+    }
+
     public var body: some View {
         let tokens = themeEngine.tokens
         NavigationStack {
@@ -186,7 +190,7 @@ public struct VaultBrowserView: View {
                     }
                 }
             }
-            .task(id: "\(isPrivateMode)-\(currentRelativePath)-\(authService.isPrivateUnlocked)") {
+            .task(id: reloadTaskKey) {
                 await reloadDirectory()
             }
             .photosPicker(

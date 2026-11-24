@@ -61,12 +61,23 @@ echo "[verify] Found cacert.pem: ${CACERT_PATH}"
 FRAMEWORKS_DIR="${APP_BUNDLE}/Frameworks"
 [ -d "${FRAMEWORKS_DIR}" ] || fail "Embedded Frameworks directory missing"
 
-for REQUIRED_FW in Libavformat.framework Libavcodec.framework Libavutil.framework libmpv.framework libssl.framework libcrypto.framework; do
+for REQUIRED_FW in Libavformat.framework Libavcodec.framework Libavutil.framework libmpv.framework libssl.framework libcrypto.framework Python.framework; do
     FW_PATH="${FRAMEWORKS_DIR}/${REQUIRED_FW}"
     [ -d "${FW_PATH}" ] || fail "Required embedded framework missing: ${REQUIRED_FW}"
     FW_MIN_OS="$("${PLIST_BUDDY}" -c "Print :MinimumOSVersion" "${FW_PATH}/Info.plist")"
     [ "${FW_MIN_OS}" = "26.0" ] || fail "${REQUIRED_FW} MinimumOSVersion is ${FW_MIN_OS}, expected 26.0"
 done
+
+PYTHON_BIN="${FRAMEWORKS_DIR}/Python.framework/Python"
+if [ -f "${PYTHON_BIN}" ]; then
+    PYTHON_ARCHS="$(lipo -archs "${PYTHON_BIN}")"
+    echo "[verify] Python.framework architectures: ${PYTHON_ARCHS}"
+    [ "${PYTHON_ARCHS}" = "arm64" ] || fail "Python.framework must be arm64-only, found '${PYTHON_ARCHS}'"
+fi
+[ -d "${APP_BUNDLE}/python/lib" ] || fail "Bundled yt-dlp Python stdlib missing at ${APP_BUNDLE}/python/lib"
+YTDLP_PKG_PATH="$(find "${APP_BUNDLE}" -path '*ytdlp-apple_YTDLP.bundle*yt_dlp/__init__.py' -print -quit)"
+[ -n "${YTDLP_PKG_PATH}" ] && [ -s "${YTDLP_PKG_PATH}" ] || fail "Bundled ytdlp-apple_YTDLP.bundle yt_dlp package is missing"
+echo "[verify] Verified Python.framework (arm64), python/lib stdlib, and yt_dlp bundle: ${YTDLP_PKG_PATH}"
 
 READABILITY_PATH="$(find "${APP_BUNDLE}" -name 'Readability.js' -print -quit)"
 [ -n "${READABILITY_PATH}" ] && [ -s "${READABILITY_PATH}" ] || fail "Bundled Mozilla Readability.js is missing"
@@ -80,7 +91,7 @@ for FW in "${FRAMEWORKS_DIR}"/*.framework; do
         [ "${FW_MIN_OS}" = "26.0" ] || fail "$(basename "${FW}") MinimumOSVersion is ${FW_MIN_OS}, expected 26.0"
     fi
 done
-echo "[verify] Verified embedded FFmpegKit / libmpv frameworks and MinimumOSVersion=26.0."
+echo "[verify] Verified embedded FFmpegKit / libmpv / Python frameworks and MinimumOSVersion=26.0."
 
 # 6. Verify AdBlockShards manifest and shards
 ADBLOCK_MANIFEST="${APP_BUNDLE}/AdBlockShards/manifest.json"

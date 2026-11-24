@@ -63,6 +63,12 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
         }
     }
 
+    public var defaultYTDLPQuality: YTDLPQualityPreset {
+        didSet {
+            UserDefaults.standard.set(defaultYTDLPQuality.rawValue, forKey: Self.ytdlpQualityPrefKey)
+        }
+    }
+
     public var globalBandwidthLimitBytesPerSec: UInt64 {
         didSet {
             UserDefaults.standard.set(Int64(globalBandwidthLimitBytesPerSec), forKey: Self.bandwidthPrefKey)
@@ -90,6 +96,7 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
 
     public static let backgroundSessionIdentifier = "com.prismdm.ios.background-downloads"
     private static let downloaderModePrefKey = "prismdm.v2.defaultDownloaderMode"
+    private static let ytdlpQualityPrefKey = "prismdm.v3.defaultYTDLPQuality"
     private static let enginePrefKey = "prismdm.v1.downloadEngine"
     private static let connectionsPrefKey = "prismdm.v1.downloadConnections"
     private static let maxConcurrentPrefKey = "prismdm.v2.maxConcurrentDownloads"
@@ -98,6 +105,7 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
 
     private let headerAdapter = BrowserSessionHeaderAdapter()
     private let hlsWorker = FFmpegHLSMuxerWorker()
+    private let ytdlpWorker = YTDLPDownloadWorker()
     private let vaultService: VaultFileService
     private var modelContext: ModelContext?
 
@@ -107,6 +115,9 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
     private var hlsItemsByID: [UUID: UnifiedDownloadItem] = [:]
     private var hlsActiveTasks: [UUID: Task<Void, Never>] = [:]
     private var hlsRetryInputs: [UUID: (url: URL, title: String?, session: BrowserSessionContext?, outputURL: URL)] = [:]
+    private var ytdlpItemsByID: [UUID: UnifiedDownloadItem] = [:]
+    private var ytdlpActiveTasks: [UUID: Task<Void, Never>] = [:]
+    private var ytdlpRetryInputs: [UUID: (mediaInfo: YTDLPMediaInfo, format: YTDLPFormatOption, preferDirect: Bool, isPrivate: Bool, session: BrowserSessionContext?)] = [:]
     private var incognitoFlagsByTaskID: [UUID: Bool] = [:]
     private var registeredCompletedIDs: Set<UUID> = []
     private var etaSmoother = SpeedETASmoother(alpha: 0.28)
@@ -125,10 +136,17 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
         } else if let savedRaw = UserDefaults.standard.string(forKey: Self.enginePrefKey),
                   let savedEngine = DownloadEngineKind(rawValue: savedRaw) {
             self.preferredHTTPBackend = savedEngine
-            self.defaultDownloaderMode = savedEngine == .urlSession ? .urlSessionBackground : .libcurlParallel
+            self.defaultDownloaderMode = savedEngine == .urlSession ? .urlSessionBackground : .smartHybrid
         } else {
-            self.defaultDownloaderMode = .libcurlParallel
+            self.defaultDownloaderMode = .smartHybrid
             self.preferredHTTPBackend = .libcurl
+        }
+
+        if let savedQualityRaw = UserDefaults.standard.string(forKey: Self.ytdlpQualityPrefKey),
+           let savedQuality = YTDLPQualityPreset(rawValue: savedQualityRaw) {
+            self.defaultYTDLPQuality = savedQuality
+        } else {
+            self.defaultYTDLPQuality = .askEveryTime
         }
 
         let savedConnections = UserDefaults.standard.integer(forKey: Self.connectionsPrefKey)
@@ -363,7 +381,158 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
         try await sdmManager?.resume(DownloadID(rawValue: id))
     }
 
+    @discardableResult
+    public func enqueueYTDLPDownload(
+        mediaInfo: YTDLPMediaInfo,
+        format: YTDLPFormatOption,
+        preferDirectYTDLP: Bool = false,
+        isPrivateVault: Bool = false,
+        sessionContext: BrowserSessionContext? = nil
+    ) async throws -> UUID {
+        try headerAdapter.verifyDiskSpace(using: vaultService)
+        let taskID = UUID()
+        incognitoFlagsByTaskID[taskID] = isPrivateVault
+        ytdlpRetryInputs[taskID] = (mediaInfo, format, preferDirectYTDLP, isPrivateVault, sessionContext)
+        launchYTDLPTask(
+            taskID: taskID,
+            mediaInfo: mediaInfo,
+            format: format,
+            preferDirect: preferDirectYTDLP,
+            isPrivate: isPrivateVault,
+            sessionContext: sessionContext
+        )
+        return taskID
+    }
+
+    private func launchYTDLPTask(
+        taskID: UUID,
+        mediaInfo: YTDLPMediaInfo,
+        format: YTDLPFormatOption,
+        preferDirect: Bool,
+        isPrivate: Bool,
+        sessionContext: BrowserSessionContext?
+    ) {
+        ytdlpActiveTasks[taskID]?.cancel()
+        let safeStem = mediaInfo.title
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let stem = safeStem.isEmpty ? "PrismVideo" : String(safeStem.prefix(80))
+        let filename = "\(stem).\(format.containerExt)"
+        let initialBackend: PrismTransferBackendKind = (preferDirect || !format.supportsParallelFastPath) ? .ytdlpDirect : .ytdlpParallel
+        let createdAt = ytdlpItemsByID[taskID]?.createdAt ?? .now
+
+        ytdlpItemsByID[taskID] = UnifiedDownloadItem(
+            id: taskID,
+            backend: initialBackend,
+            sourceURL: mediaInfo.sourceURL,
+            resolvedFilename: filename,
+            destinationURL: nil,
+            state: .queued,
+            totalBytes: format.estimatedBytes,
+            isTotalBytesEstimated: true,
+            downloadedBytes: 0,
+            speedBytesPerSecond: 0,
+            etaSeconds: nil,
+            formattedETALabel: "Calculating...",
+            mediaProgressFraction: 0,
+            segments: [],
+            errorMessage: nil,
+            createdAt: createdAt
+        )
+        publishMergedItems(forceImmediate: true)
+
+        let connLimit = defaultConnectionsPerDownload
+        ytdlpActiveTasks[taskID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let outputDir = try? self.vaultService.vaultRootURL(isPrivate: isPrivate) else { return }
+            let stream = await self.ytdlpWorker.startDownload(
+                taskID: taskID,
+                mediaInfo: mediaInfo,
+                format: format,
+                preferDirectYTDLP: preferDirect,
+                outputDirectory: outputDir,
+                preferredFilename: filename,
+                connectionLimit: connLimit,
+                sessionContext: sessionContext
+            )
+
+            for await event in stream {
+                guard !Task.isCancelled else { break }
+                let isActive = (event.state == .downloading || event.state == .probing || event.state == .finalizing || event.state == .queued)
+                let smoothed = self.etaSmoother.update(
+                    taskID: taskID,
+                    instantaneousBytesPerSecond: event.speedBytesPerSecond,
+                    downloadedBytes: event.downloadedBytes,
+                    totalBytes: event.totalBytes,
+                    isActive: isActive
+                )
+                self.ytdlpItemsByID[taskID] = UnifiedDownloadItem(
+                    id: taskID,
+                    backend: event.backend,
+                    sourceURL: mediaInfo.sourceURL,
+                    resolvedFilename: event.finalFileURL?.lastPathComponent ?? filename,
+                    destinationURL: event.finalFileURL,
+                    state: event.state,
+                    totalBytes: event.totalBytes,
+                    isTotalBytesEstimated: event.isTotalBytesEstimated,
+                    downloadedBytes: event.downloadedBytes,
+                    speedBytesPerSecond: smoothed.smoothedBytesPerSecond,
+                    etaSeconds: smoothed.etaSeconds,
+                    formattedETALabel: smoothed.formattedETA,
+                    mediaProgressFraction: event.progressFraction,
+                    segments: event.segments,
+                    errorMessage: event.errorMessage,
+                    createdAt: createdAt
+                )
+
+                let isTerminal = (event.state == .completed || event.state == .failed || event.state == .cancelled)
+                self.publishMergedItems(forceImmediate: isTerminal)
+
+                if event.state == .completed,
+                   let finalURL = event.finalFileURL,
+                   self.registeredCompletedIDs.insert(taskID).inserted {
+                    self.registerCompletedFileInVault(
+                        fileURL: finalURL,
+                        preferredFilename: finalURL.lastPathComponent,
+                        sourceURL: mediaInfo.sourceURL,
+                        isPrivate: isPrivate
+                    )
+                }
+            }
+            self.ytdlpActiveTasks.removeValue(forKey: taskID)
+        }
+    }
+
     public func cancel(_ id: UUID) async throws {
+        if ytdlpItemsByID[id] != nil {
+            await ytdlpWorker.cancel(taskID: id)
+            ytdlpActiveTasks[id]?.cancel()
+            ytdlpActiveTasks.removeValue(forKey: id)
+            etaSmoother.reset(taskID: id)
+            if let existing = ytdlpItemsByID[id] {
+                ytdlpItemsByID[id] = UnifiedDownloadItem(
+                    id: existing.id,
+                    backend: existing.backend,
+                    sourceURL: existing.sourceURL,
+                    resolvedFilename: existing.resolvedFilename,
+                    destinationURL: nil,
+                    state: .cancelled,
+                    totalBytes: existing.totalBytes,
+                    isTotalBytesEstimated: existing.isTotalBytesEstimated,
+                    downloadedBytes: 0,
+                    speedBytesPerSecond: 0,
+                    etaSeconds: nil,
+                    formattedETALabel: "",
+                    mediaProgressFraction: nil,
+                    segments: [],
+                    errorMessage: nil,
+                    createdAt: existing.createdAt
+                )
+                publishMergedItems(forceImmediate: true)
+            }
+            return
+        }
         if hlsItemsByID[id] != nil {
             await hlsWorker.cancelTask(id)
             hlsActiveTasks[id]?.cancel()
@@ -401,6 +570,17 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
     }
 
     public func retry(_ id: UUID) async throws {
+        if let retryInput = ytdlpRetryInputs[id] {
+            launchYTDLPTask(
+                taskID: id,
+                mediaInfo: retryInput.mediaInfo,
+                format: retryInput.format,
+                preferDirect: retryInput.preferDirect,
+                isPrivate: retryInput.isPrivate,
+                sessionContext: retryInput.session
+            )
+            return
+        }
         if let retryInput = hlsRetryInputs[id] {
             launchHLSTask(
                 taskID: id,
@@ -417,6 +597,16 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
 
     /// Removes download record & partial temp state ONLY; NEVER deletes a finalized Vault file.
     public func removeFromHistory(_ id: UUID) async throws {
+        if ytdlpItemsByID[id] != nil {
+            await ytdlpWorker.cancel(taskID: id)
+            ytdlpActiveTasks[id]?.cancel()
+            ytdlpActiveTasks.removeValue(forKey: id)
+            ytdlpItemsByID.removeValue(forKey: id)
+            ytdlpRetryInputs.removeValue(forKey: id)
+            etaSmoother.reset(taskID: id)
+            publishMergedItems(forceImmediate: true)
+            return
+        }
         if hlsItemsByID[id] != nil {
             await hlsWorker.cancelTask(id)
             hlsActiveTasks[id]?.cancel()
@@ -649,7 +839,7 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
     }
 
     private func rebuildPublishedItemsArray() {
-        var combined = Array(sdmSnapshotsByID.values) + Array(hlsItemsByID.values)
+        var combined = Array(sdmSnapshotsByID.values) + Array(hlsItemsByID.values) + Array(ytdlpItemsByID.values)
         combined.sort { lhs, rhs in
             if lhs.isActive != rhs.isActive {
                 return lhs.isActive

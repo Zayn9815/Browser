@@ -583,6 +583,14 @@ private struct DownloadsSettingsView: View {
                     }
                 }
 
+                Picker("Default yt-dlp Quality", selection: $downloadStore.defaultYTDLPQuality) {
+                    ForEach(YTDLPQualityPreset.allCases) { preset in
+                        Text(preset.displayTitle).tag(preset)
+                    }
+                }
+
+                LabeledContent("Bundled yt-dlp", value: YTDLPExtractorService.bundledVersionSummary())
+
                 Picker("HTTP Engine Backend", selection: $downloadStore.preferredHTTPBackend) {
                     Text("libcurl Multi-Range").tag(DownloadEngineKind.libcurl)
                     Text("iOS Background URLSession").tag(DownloadEngineKind.urlSession)
@@ -987,6 +995,11 @@ private struct OpenSourceLicensesView: View {
             "Mozilla Readability.js (0.6.0)",
             "Apache-2.0 / MPL-2.0 • Mozilla Corporation",
             "Runs isolated in WebKit's .defaultClient world to extract clean Reader Mode articles."
+        ),
+        (
+            "ytdlp-apple, yt-dlp, yt-dlp-ejs, Python & certifi",
+            "MIT / Unlicense / PSF / MPL-2.0",
+            "Bundles lazy on-device Python 3.14 (BeeWare Python-Apple-support), yt-dlp, yt-dlp-ejs (Apple JavaScriptCore challenge solver), and certifi CA certificates for multi-site media extraction."
         ),
         (
             "KSCrash (2.6.1)",

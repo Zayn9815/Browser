@@ -21,6 +21,7 @@ let package = Package(
         .package(url: "https://github.com/kingslay/FFmpegKit.git", exact: "9.0.2"),
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.21"),
         .package(url: "https://github.com/kstenerud/KSCrash.git", from: "2.6.1"),
+        .package(url: "https://github.com/Catlyn-Lab/ytdlp-apple.git", from: "0.1.1"),
     ],
     targets: [
         .target(
@@ -63,12 +64,14 @@ let package = Package(
                 "PrismCore",
                 "VaultManager",
                 .product(name: "SDMCore", package: "SDMCore"),
+                .product(name: "YTDLP", package: "ytdlp-apple"),
                 .product(name: "FFmpegKit", package: "FFmpegKit"),
                 .product(name: "Libavformat", package: "FFmpegKit"),
                 .product(name: "Libavcodec", package: "FFmpegKit"),
                 .product(name: "Libavutil", package: "FFmpegKit"),
             ],
             linkerSettings: [
+                .linkedFramework("JavaScriptCore"),
                 .linkedFramework("VideoToolbox"),
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("CoreMedia"),

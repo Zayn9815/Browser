@@ -12,8 +12,15 @@ public struct RootShellCoordinatorView: View {
     @Bindable private var audioCenter: BackgroundAudioCenter
     @State private var selectedTab: PrismShellTab = .browser
 
+    private struct YTDLPPickerRequest: Identifiable {
+        let id = UUID()
+        let url: URL
+        let sessionContext: BrowserSessionContext?
+    }
+
     @State private var activePlayerHandoff: FullscreenPlaybackHandoff?
     @State private var qualityPickerItem: InterceptedMediaItem?
+    @State private var ytdlpPickerRequest: YTDLPPickerRequest?
 
     public init(
         browserStore: BrowserStore,
@@ -57,7 +64,11 @@ public struct RootShellCoordinatorView: View {
                             )
                         },
                         onDownload: {
-                            if detected.containerHint == .m3u8 {
+                            if let pageURL = browserStore.activeTab.currentURL,
+                               (downloadStore.defaultDownloaderMode == .ytdlpUniversal
+                                || (downloadStore.defaultDownloaderMode == .smartHybrid && YTDLPURLMatcher.shouldPreferYTDLP(for: pageURL))) {
+                                ytdlpPickerRequest = YTDLPPickerRequest(url: pageURL, sessionContext: detected.sessionContext)
+                            } else if detected.containerHint == .m3u8 {
                                 qualityPickerItem = detected
                             } else {
                                 triggerMediaDownload(item: detected, selectedVariant: nil)
@@ -74,6 +85,9 @@ public struct RootShellCoordinatorView: View {
             browserStore.mediaInterceptor.onFullscreenHandoff = { handoff in
                 activePlayerHandoff = handoff
             }
+            browserStore.onOpenYTDLPPicker = { url, ctx in
+                ytdlpPickerRequest = YTDLPPickerRequest(url: url, sessionContext: ctx)
+            }
         }
         .fullScreenCover(item: $activePlayerHandoff) { handoff in
             PrismPlayerView(
@@ -86,6 +100,16 @@ public struct RootShellCoordinatorView: View {
                 },
                 onRequestDownload: { source in
                     handleInPlayerDownloadTap(source)
+                }
+            )
+        }
+        .sheet(item: $ytdlpPickerRequest) { req in
+            YTDLPQualityPickerSheet(
+                url: req.url,
+                sessionContext: req.sessionContext,
+                downloadStore: downloadStore,
+                onDownloadStarted: { message in
+                    browserStore.showToast(message)
                 }
             )
         }

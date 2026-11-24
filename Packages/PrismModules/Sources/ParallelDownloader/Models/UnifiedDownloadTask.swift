@@ -2,34 +2,38 @@ import Foundation
 import SDMCore
 
 public enum PrismDefaultDownloaderMode: String, Codable, Sendable, CaseIterable, Identifiable {
+    case smartHybrid
+    case ytdlpUniversal
     case libcurlParallel
     case urlSessionBackground
-    case smartHybrid
 
     public var id: String { rawValue }
 
     public var displayTitle: String {
         switch self {
+        case .smartHybrid:
+            return "Auto / Smart Hybrid"
+        case .ytdlpUniversal:
+            return "yt-dlp (Universal Media Extractor)"
         case .libcurlParallel:
             return "libcurl Multi-Range Parallel"
         case .urlSessionBackground:
             return "iOS Background URLSession"
-        case .smartHybrid:
-            return "Auto / Smart Hybrid"
         }
     }
 
     public var shortLabel: String {
         switch self {
+        case .smartHybrid: return "Smart Hybrid"
+        case .ytdlpUniversal: return "yt-dlp"
         case .libcurlParallel: return "libcurl"
         case .urlSessionBackground: return "URLSession"
-        case .smartHybrid: return "Smart Hybrid"
         }
     }
 
     public var underlyingSDMEngine: DownloadEngineKind {
         switch self {
-        case .libcurlParallel, .smartHybrid:
+        case .smartHybrid, .ytdlpUniversal, .libcurlParallel:
             return .libcurl
         case .urlSessionBackground:
             return .urlSession
@@ -41,6 +45,8 @@ public enum PrismTransferBackendKind: String, Codable, Sendable, CaseIterable {
     case sdmLibcurlRange
     case sdmBackgroundSession
     case ffmpegHLSMuxer
+    case ytdlpParallel
+    case ytdlpDirect
 
     public var displayTitle: String {
         switch self {
@@ -50,6 +56,10 @@ public enum PrismTransferBackendKind: String, Codable, Sendable, CaseIterable {
             return "iOS Background URLSession"
         case .ffmpegHLSMuxer:
             return "FFmpeg HLS Parallel"
+        case .ytdlpParallel:
+            return "yt-dlp + Parallel"
+        case .ytdlpDirect:
+            return "yt-dlp Direct"
         }
     }
 }

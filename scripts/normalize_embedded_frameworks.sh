@@ -28,6 +28,18 @@ NORMALIZED_COUNT=0
 for FW in "${FRAMEWORKS_DIR}"/*.framework; do
     [ -d "${FW}" ] || continue
     FW_NAME="$(basename "${FW}")"
+    FW_BIN_NAME="${FW_NAME%.framework}"
+    FW_BIN="${FW}/${FW_BIN_NAME}"
+
+    # Thin any multi-architecture framework binary strictly to arm64 for iPhone-only IPA
+    if [ -f "${FW_BIN}" ] && command -v lipo >/dev/null 2>&1; then
+        FW_ARCHS="$(lipo -archs "${FW_BIN}" 2>/dev/null || true)"
+        if [ -n "${FW_ARCHS}" ] && [ "${FW_ARCHS}" != "arm64" ] && echo "${FW_ARCHS}" | grep -qw "arm64"; then
+            echo "[normalize] ${FW_NAME}: thinning '${FW_ARCHS}' -> arm64"
+            lipo -thin arm64 "${FW_BIN}" -output "${FW_BIN}.arm64"
+            mv "${FW_BIN}.arm64" "${FW_BIN}"
+        fi
+    fi
 
     # Remove stale upstream signatures so AltStore/SideStore/Feather/Sideloadly re-sign cleanly
     rm -rf "${FW}/_CodeSignature"

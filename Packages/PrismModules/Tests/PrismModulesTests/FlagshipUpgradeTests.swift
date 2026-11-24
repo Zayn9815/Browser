@@ -116,4 +116,65 @@ struct FlagshipUpgradeTests {
             #expect(!item.host.isEmpty)
         }
     }
+
+    @Test("Liquid Glass surface tokens and Alpine Glacier wallpaper preset are configured")
+    func liquidGlassTokensAndAlpineWallpaper() {
+        let crimson = PrismThemeID.crimsonLiquidGlass.tokens
+        #expect(crimson.glassAlpha > 0.4 && crimson.glassAlpha < 0.7)
+        #expect(crimson.sheenAlpha > 0.0)
+        #expect(!crimson.isClassicStock)
+
+        let classic = PrismThemeID.classicStock.tokens
+        #expect(classic.isClassicStock)
+
+        #expect(PrismWallpaperOption.allCases.contains(.alpineGlacier))
+        #expect(PrismWallpaperOption.alpineGlacier.displayName == "Alpine Glacier")
+    }
+
+    @Test("YTDLPURLMatcher routes social/video pages to yt-dlp and direct files to libcurl")
+    func ytdlpURLRouting() {
+        #expect(YTDLPURLMatcher.shouldPreferYTDLP(for: URL(string: "https://www.youtube.com/watch?v=dQw4w9WgXcQ")!))
+        #expect(YTDLPURLMatcher.shouldPreferYTDLP(for: URL(string: "https://youtu.be/dQw4w9WgXcQ")!))
+        #expect(YTDLPURLMatcher.shouldPreferYTDLP(for: URL(string: "https://www.tiktok.com/@user/video/123456")!))
+        #expect(YTDLPURLMatcher.shouldPreferYTDLP(for: URL(string: "https://x.com/user/status/123456")!))
+        #expect(!YTDLPURLMatcher.shouldPreferYTDLP(for: URL(string: "https://cdn.example.com/archive.zip")!))
+        #expect(!YTDLPURLMatcher.shouldPreferYTDLP(for: URL(string: "https://cdn.example.com/movie.mp4")!))
+        #expect(!YTDLPURLMatcher.shouldPreferYTDLP(for: URL(string: "https://cdn.example.com/stream.m3u8")!))
+    }
+
+    @Test("YTDLPExtractorService parses adaptive video + M4A audio formats and deduplicates tiers")
+    func ytdlpJSONParsing() throws {
+        let json = """
+        {
+          "title": "Sample 4K Clip",
+          "uploader": "PrismChannel",
+          "duration": 120,
+          "extractor_key": "Youtube",
+          "formats": [
+            {"format_id": "140", "url": "https://cdn.example.com/a.m4a", "ext": "m4a", "vcodec": "none", "acodec": "mp4a.40.2", "abr": 128, "filesize": 2000000},
+            {"format_id": "137", "url": "https://cdn.example.com/1080.mp4", "ext": "mp4", "vcodec": "avc1.640028", "acodec": "none", "height": 1080, "fps": 60, "filesize": 50000000},
+            {"format_id": "22", "url": "https://cdn.example.com/720.mp4", "ext": "mp4", "vcodec": "avc1.64001F", "acodec": "mp4a.40.2", "height": 720, "filesize": 22000000}
+          ]
+        }
+        """
+        let info = try YTDLPExtractorService.parseMediaInfo(
+            fromJSONData: Data(json.utf8),
+            sourceURL: URL(string: "https://www.youtube.com/watch?v=test")!
+        )
+        #expect(info.title == "Sample 4K Clip")
+        #expect(info.formats.count == 3)
+        let hd1080 = info.formats.first(where: { $0.resolutionHeight == 1080 })
+        #expect(hd1080?.requiresDualMux == true)
+        #expect(hd1080?.estimatedBytes == 52_000_000)
+        #expect(info.formats.contains(where: { $0.isAudioOnly }))
+    }
+
+    @Test("YTDLPDownloadWorker parses live stdout progress lines accurately")
+    func ytdlpProgressLineParsing() {
+        let parsed = YTDLPDownloadWorker.parseProgressLine("[download]  42.5% of   50.00MiB at    4.00MiB/s ETA 00:07")
+        #expect(parsed != nil)
+        #expect(abs((parsed?.fraction ?? 0) - 0.425) < 0.001)
+        #expect(parsed?.totalBytes == 52_428_800)
+        #expect(parsed?.speedBytesPerSecond == 4_194_304)
+    }
 }

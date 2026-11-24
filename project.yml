@@ -88,6 +88,11 @@ targets:
       - sdk: Photos.framework
       - sdk: PhotosUI.framework
       - sdk: Translation.framework
+      - sdk: JavaScriptCore.framework
+    postBuildScripts:
+      - name: Install Python for yt-dlp
+        script: '"${SRCROOT}/scripts/install_ytdlp_python.sh"'
+        basedOnDependencyAnalysis: false
 
 schemes:
   PrismDM:

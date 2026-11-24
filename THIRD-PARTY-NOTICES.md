@@ -52,3 +52,8 @@ PrismDM is an independent iPhone-only browser and download manager. It is not af
 - **License**: MIT License
 - **Copyright**: Copyright (c) 2012 Karl Stenerud.
 
+
+
+### 7. ytdlp-apple, yt-dlp, yt-dlp-ejs, Python (BeeWare Python-Apple-support) & certifi
+- **Upstream**: https://github.com/Catlyn-Lab/ytdlp-apple (MIT), https://github.com/yt-dlp/yt-dlp (Unlicense), https://github.com/beeware/Python-Apple-support (PSF License), certifi (MPL-2.0)
+- **Usage**: Provides lazy, on-device, in-process media metadata extraction and downloading with Apple JavaScriptCore challenge solving (`yt-dlp-ejs`), strictly booted off the main thread only when invoked by the user.
