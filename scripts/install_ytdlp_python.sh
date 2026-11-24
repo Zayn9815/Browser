@@ -45,11 +45,16 @@ echo "[ytdlp-python] Using script: ${SCRIPT_PATH}"
 echo "[ytdlp-python] Using xcframework: ${XCF_PATH}"
 
 export YTDLP_PYTHON_XCFRAMEWORK="${XCF_PATH}"
-# On unsigned CI builds (CODE_SIGNING_ALLOWED=NO), ensure Xcode signing variables are defined
-# so BeeWare's utils.sh does not fail on unbound variables under `set -u`.
-export EXPANDED_CODE_SIGN_IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:-}"
-export EXPANDED_CODE_SIGN_IDENTITY_NAME="${EXPANDED_CODE_SIGN_IDENTITY_NAME:-}"
-export CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-}"
+# On unsigned CI builds (CODE_SIGNING_ALLOWED=NO), EXPANDED_CODE_SIGN_IDENTITY is empty,
+# while BeeWare's utils.sh unconditionally runs `codesign --sign "$EXPANDED_CODE_SIGN_IDENTITY"`.
+# Use Apple's ad-hoc identity ("-") when unset; normalize_embedded_frameworks.sh strips _CodeSignature afterward.
+if [ -z "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
+  export EXPANDED_CODE_SIGN_IDENTITY="-"
+  export EXPANDED_CODE_SIGN_IDENTITY_NAME="${EXPANDED_CODE_SIGN_IDENTITY_NAME:-Ad-Hoc}"
+else
+  export EXPANDED_CODE_SIGN_IDENTITY_NAME="${EXPANDED_CODE_SIGN_IDENTITY_NAME:-${EXPANDED_CODE_SIGN_IDENTITY}}"
+fi
+export CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-${EXPANDED_CODE_SIGN_IDENTITY}}"
 export CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-NO}"
 export CODE_SIGNING_REQUIRED="${CODE_SIGNING_REQUIRED:-NO}"
 
