@@ -88,6 +88,20 @@ public final class PageTranslationService {
         }
     }
 
+    public nonisolated static func translateSegments(
+        _ segments: [DOMTextSegment],
+        using box: UncheckedTranslationSessionBox
+    ) async throws -> [DOMTextSegment] {
+        let requests = segments.map {
+            TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
+        }
+        let responses = try await box.session.translations(from: requests)
+        return responses.compactMap { resp in
+            guard let id = resp.clientIdentifier else { return nil }
+            return DOMTextSegment(id: id, text: resp.targetText)
+        }
+    }
+
     public func collectTranslatableSegments() async throws -> [DOMTextSegment] {
         guard let webView = targetWebView else { return [] }
         let rawJSON: Any? = try await webView.evaluateJavaScript(
