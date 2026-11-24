@@ -45,9 +45,12 @@ echo "[ytdlp-python] Using script: ${SCRIPT_PATH}"
 echo "[ytdlp-python] Using xcframework: ${XCF_PATH}"
 
 export YTDLP_PYTHON_XCFRAMEWORK="${XCF_PATH}"
-# On unsigned CI builds (CODE_SIGNING_ALLOWED=NO), ensure EXPANDED_CODE_SIGN_IDENTITY is defined
-# so BeeWare's utils.sh does not fail on unbound variable or empty codesign identity.
+# On unsigned CI builds (CODE_SIGNING_ALLOWED=NO), ensure Xcode signing variables are defined
+# so BeeWare's utils.sh does not fail on unbound variables under `set -u`.
 export EXPANDED_CODE_SIGN_IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:-}"
+export EXPANDED_CODE_SIGN_IDENTITY_NAME="${EXPANDED_CODE_SIGN_IDENTITY_NAME:-}"
+export CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-}"
 export CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-NO}"
+export CODE_SIGNING_REQUIRED="${CODE_SIGNING_REQUIRED:-NO}"
 
 bash "${SCRIPT_PATH}"
