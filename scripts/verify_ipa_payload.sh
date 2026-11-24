@@ -55,12 +55,16 @@ echo "[verify] Found cacert.pem: ${CACERT_PATH}"
 FRAMEWORKS_DIR="${APP_BUNDLE}/Frameworks"
 [ -d "${FRAMEWORKS_DIR}" ] || fail "Embedded Frameworks directory missing"
 
-for REQUIRED_FW in Libavformat.framework Libavcodec.framework libmpv.framework; do
+for REQUIRED_FW in Libavformat.framework Libavcodec.framework Libavutil.framework libmpv.framework libssl.framework libcrypto.framework; do
     FW_PATH="${FRAMEWORKS_DIR}/${REQUIRED_FW}"
     [ -d "${FW_PATH}" ] || fail "Required embedded framework missing: ${REQUIRED_FW}"
     FW_MIN_OS="$("${PLIST_BUDDY}" -c "Print :MinimumOSVersion" "${FW_PATH}/Info.plist")"
     [ "${FW_MIN_OS}" = "26.0" ] || fail "${REQUIRED_FW} MinimumOSVersion is ${FW_MIN_OS}, expected 26.0"
 done
+
+READABILITY_PATH="$(find "${APP_BUNDLE}" -name 'Readability.js' -print -quit)"
+[ -n "${READABILITY_PATH}" ] && [ -s "${READABILITY_PATH}" ] || fail "Bundled Mozilla Readability.js is missing"
+echo "[verify] Found Readability.js: ${READABILITY_PATH}"
 
 for FW in "${FRAMEWORKS_DIR}"/*.framework; do
     [ -d "${FW}" ] || continue

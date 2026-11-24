@@ -153,6 +153,7 @@ public final class MPVUniversalEngine: PlaybackEngineDriver {
     private let eventQueue = DispatchQueue(label: "com.prismdm.mpv.events", qos: .userInitiated)
     private weak var metalLayer: CAMetalLayer?
     private var pendingSource: PlayableSource?
+    private var pendingSeekSeconds: Double?
     private var currentTitle: String = ""
     private var isInitialized = false
 
@@ -165,8 +166,15 @@ public final class MPVUniversalEngine: PlaybackEngineDriver {
         metalLayer = layer
         if let source = pendingSource {
             pendingSource = nil
+            let deferredSeek = pendingSeekSeconds
+            pendingSeekSeconds = nil
             Task { @MainActor [weak self] in
-                try? await self?.load(source)
+                guard let self else { return }
+                try? await self.load(source)
+                if let deferredSeek, deferredSeek > 0.5 {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    await self.seek(to: deferredSeek, accurate: true)
+                }
             }
         }
     }
@@ -222,6 +230,11 @@ public final class MPVUniversalEngine: PlaybackEngineDriver {
 
     public func seek(to seconds: Double, accurate: Bool) async {
         let target = max(0, seconds)
+        if !isInitialized && pendingSource != nil {
+            pendingSeekSeconds = target
+            currentTimeSeconds = target
+            return
+        }
         let mode = accurate ? "absolute+exact" : "absolute+keyframes"
         executeCommand(["seek", String(format: "%.3f", target), mode])
         currentTimeSeconds = target

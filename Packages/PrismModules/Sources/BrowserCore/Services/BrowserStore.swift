@@ -75,6 +75,7 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
     private let tabsPersistenceKey = "prismdm.v1.normalTabs"
     private let searchEngineKey = "prismdm.v1.searchEngine"
     private let globalDarkModeKey = "prismdm.v1.globalDarkMode"
+    private let globalAdBlockKey = "prismdm.v1.globalAdBlock"
 
     public init(
         adBlockCompiler: AdBlockRuleCompiler = .shared,
@@ -104,6 +105,9 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
             self.selectedSearchEngine = engine
         }
         self.globalDarkModeEnabled = UserDefaults.standard.bool(forKey: globalDarkModeKey)
+        if UserDefaults.standard.object(forKey: globalAdBlockKey) != nil {
+            self.globalAdBlockEnabled = UserDefaults.standard.bool(forKey: globalAdBlockKey)
+        }
 
         let restored = Self.loadPersistedTabs(key: tabsPersistenceKey)
         if !restored.isEmpty {
@@ -352,9 +356,17 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
         persistNormalTabs()
     }
 
+    public func setGlobalAdBlockEnabled(_ enabled: Bool) {
+        globalAdBlockEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: globalAdBlockKey)
+        let host = activeTab.currentURL?.host?.lowercased()
+        webViewPool.applyAdBlockRules(to: activeTabID, siteHost: host, allowlistedHosts: effectiveAllowlistedHosts)
+        webViewPool.existingWebView(for: activeTabID)?.reload()
+    }
+
     public func toggleActiveSiteAdBlock() {
         guard let host = activeTab.currentURL?.host?.lowercased(), !host.isEmpty else {
-            globalAdBlockEnabled.toggle()
+            setGlobalAdBlockEnabled(!globalAdBlockEnabled)
             return
         }
         if allowlistedHosts.contains(host) {

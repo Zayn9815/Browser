@@ -85,6 +85,10 @@ public final class AdBlockRuleCompiler: AdBlockRuleProviding {
     ) async {
         userContentController.removeAllContentRuleLists()
 
+        if allowlistedHosts.contains("*") {
+            return
+        }
+
         if let host = siteHost?.lowercased(), allowlistedHosts.contains(host) {
             return
         }

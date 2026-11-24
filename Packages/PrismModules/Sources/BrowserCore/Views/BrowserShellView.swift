@@ -406,7 +406,13 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                         set: { _ in store.toggleGlobalDarkMode() }
                     ))
 
-                    Toggle("Offline Ad & Tracker Blocker", isOn: $store.globalAdBlockEnabled)
+                    Toggle(
+                        "Offline Ad & Tracker Blocker",
+                        isOn: Binding(
+                            get: { store.globalAdBlockEnabled },
+                            set: { store.setGlobalAdBlockEnabled($0) }
+                        )
+                    )
                 }
 
                 Section("Privacy & Browsing Data") {
