@@ -71,7 +71,24 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                 downloadStore.attachModelContext(modelContext)
             }
             .translationTask(store.translationService.configuration) { [translationService = store.translationService] session in
-                await translationService.runTranslationSession(session)
+                do {
+                    let segments = try await translationService.collectTranslatableSegments()
+                    guard !segments.isEmpty else {
+                        await translationService.finishWithNoTextFound()
+                        return
+                    }
+                    let requests = segments.map {
+                        TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
+                    }
+                    let responses = try await session.translations(from: requests)
+                    let translated = responses.compactMap { resp -> DOMTextSegment? in
+                        guard let id = resp.clientIdentifier else { return nil }
+                        return DOMTextSegment(id: id, text: resp.targetText)
+                    }
+                    try await translationService.applyTranslatedSegments(translated)
+                } catch {
+                    await translationService.handleTranslationError(error)
+                }
             }
             .sheet(
                 isPresented: Binding(

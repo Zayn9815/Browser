@@ -28,9 +28,14 @@ public struct TranslationTargetLanguage: Identifiable, Hashable, Sendable {
     ]
 }
 
-private struct DOMTextSegment: Codable, Sendable {
-    let id: String
-    let text: String
+public struct DOMTextSegment: Codable, Sendable {
+    public let id: String
+    public let text: String
+
+    public init(id: String, text: String) {
+        self.id = id
+        self.text = text
+    }
 }
 
 /// Manages Apple's native on-device `Translation` framework (`TranslationSession`) in-place DOM translation
@@ -75,46 +80,7 @@ public final class PageTranslationService {
         }
     }
 
-    public nonisolated func runTranslationSession(_ session: sending TranslationSession) async {
-        do {
-            let extractedSegments = try await collectSegments()
-            guard !extractedSegments.isEmpty else {
-                await MainActor.run {
-                    self.isTranslating = false
-                    self.statusMessage = "No translatable text found on this page."
-                }
-                return
-            }
-
-            let requests = extractedSegments.map {
-                TranslationSession.Request(sourceText: $0.text, clientIdentifier: $0.id)
-            }
-            let responses = try await session.translations(from: requests)
-            let translatedSegments = responses.compactMap { resp -> DOMTextSegment? in
-                guard let id = resp.clientIdentifier else { return nil }
-                return DOMTextSegment(id: id, text: resp.targetText)
-            }
-
-            try await applyTranslatedSegments(translatedSegments)
-
-            await MainActor.run {
-                self.isTranslating = false
-                self.isShowingTranslated = true
-                self.showGoogleFallbackOffer = false
-                self.statusMessage = "Translated to \(self.selectedTarget.displayName)"
-                PrismLogCenter.record(.info, category: .browser, "Translated \(translatedSegments.count) DOM segments to \(self.selectedTarget.code).")
-            }
-        } catch {
-            await MainActor.run {
-                self.isTranslating = false
-                self.showGoogleFallbackOffer = true
-                self.statusMessage = "On-device pack unavailable. Tap Google Translate fallback."
-                PrismLogCenter.record(.warning, category: .browser, "On-device translation failed: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    private func collectSegments() async throws -> [DOMTextSegment] {
+    public func collectTranslatableSegments() async throws -> [DOMTextSegment] {
         guard let webView = targetWebView else { return [] }
         let rawJSON: Any? = try await webView.evaluateJavaScript(
             "typeof window.__prismCollectTranslatableSegments === 'function' ? window.__prismCollectTranslatableSegments(240) : '[]'",
@@ -129,10 +95,16 @@ public final class PageTranslationService {
         return segments
     }
 
-    private func applyTranslatedSegments(_ translatedSegments: [DOMTextSegment]) async throws {
-        guard let webView = targetWebView else { return }
+    public func applyTranslatedSegments(_ translatedSegments: [DOMTextSegment]) async throws {
+        guard let webView = targetWebView else {
+            isTranslating = false
+            return
+        }
         let encodedData = try JSONEncoder().encode(translatedSegments)
-        guard let encodedJSON = String(data: encodedData, encoding: .utf8) else { return }
+        guard let encodedJSON = String(data: encodedData, encoding: .utf8) else {
+            isTranslating = false
+            return
+        }
         let jsPayloadData = try JSONSerialization.data(withJSONObject: [encodedJSON], options: [])
         let jsArrayLiteral = String(data: jsPayloadData, encoding: .utf8) ?? "[]"
         _ = try await webView.evaluateJavaScript(
@@ -140,6 +112,23 @@ public final class PageTranslationService {
             in: nil,
             in: .defaultClient
         )
+        isTranslating = false
+        isShowingTranslated = true
+        showGoogleFallbackOffer = false
+        statusMessage = "Translated to \(selectedTarget.displayName)"
+        PrismLogCenter.record(.info, category: .browser, "Translated \(translatedSegments.count) DOM segments to \(selectedTarget.code).")
+    }
+
+    public func finishWithNoTextFound() {
+        isTranslating = false
+        statusMessage = "No translatable text found on this page."
+    }
+
+    public func handleTranslationError(_ error: Error) {
+        isTranslating = false
+        showGoogleFallbackOffer = true
+        statusMessage = "On-device pack unavailable. Tap Google Translate fallback."
+        PrismLogCenter.record(.warning, category: .browser, "On-device translation failed: \(error.localizedDescription)")
     }
 
     public func restoreOriginal() {
