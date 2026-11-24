@@ -82,7 +82,6 @@ public struct RootShellCoordinatorView: View {
                     handleInPlayerDownloadTap(source)
                 }
             )
-            .ignoresSafeArea()
         }
         .sheet(item: $qualityPickerItem) { item in
             StreamQualityPickerSheet(

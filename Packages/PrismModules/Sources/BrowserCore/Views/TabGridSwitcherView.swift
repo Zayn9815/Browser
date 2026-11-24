@@ -114,13 +114,16 @@ public struct TabGridSwitcherView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.68))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .accessibilityLabel("Close \(tab.title)")
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.leading, 10)
+            .padding(.trailing, 4)
+            .padding(.vertical, 2)
             .background(Color.white.opacity(0.06))
 
             ZStack {
@@ -146,6 +149,12 @@ public struct TabGridSwitcherView: View {
             .clipped()
             .clipShape(ConcentricRectangle(corners: .concentric(minimum: 12), isUniform: true))
             .padding(6)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                hapticCounter += 1
+                store.selectTab(tab.id)
+                dismiss()
+            }
         }
         .background(PrismBrandPalette.obsidianElevated)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -157,11 +166,6 @@ public struct TabGridSwitcherView: View {
                 )
         )
         .containerShape(.rect(cornerRadius: 20))
-        .onTapGesture {
-            hapticCounter += 1
-            store.selectTab(tab.id)
-            dismiss()
-        }
     }
 
     private var bottomGlassToolbar: some View {

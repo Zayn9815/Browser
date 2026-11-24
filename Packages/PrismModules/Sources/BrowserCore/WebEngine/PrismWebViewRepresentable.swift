@@ -60,6 +60,7 @@ public struct PrismWebViewRepresentable: UIViewRepresentable {
 
         private var observations: [NSKeyValueObservation] = []
         private var lastScrollOffsetY: CGFloat = 0
+        private var lastEmittedSnapshot: WebViewObservableUpdate?
 
         public init(
             onStateChanged: @escaping @MainActor (WebViewObservableUpdate) -> Void,
@@ -137,6 +138,7 @@ public struct PrismWebViewRepresentable: UIViewRepresentable {
         public func unbind() {
             observations.forEach { $0.invalidate() }
             observations.removeAll()
+            lastEmittedSnapshot = nil
             if boundWebView?.scrollView.delegate === self {
                 boundWebView?.scrollView.delegate = nil
             }
@@ -144,17 +146,34 @@ public struct PrismWebViewRepresentable: UIViewRepresentable {
         }
 
         private func emitSnapshot(from webView: WKWebView) {
-            onStateChanged(
-                WebViewObservableUpdate(
-                    title: webView.title ?? "",
-                    urlString: webView.url?.absoluteString ?? "",
-                    isLoading: webView.isLoading,
-                    estimatedProgress: webView.estimatedProgress,
-                    canGoBack: webView.canGoBack,
-                    canGoForward: webView.canGoForward,
-                    hasOnlySecureContent: webView.hasOnlySecureContent
-                )
+            let next = WebViewObservableUpdate(
+                title: webView.title ?? "",
+                urlString: webView.url?.absoluteString ?? "",
+                isLoading: webView.isLoading,
+                estimatedProgress: webView.estimatedProgress,
+                canGoBack: webView.canGoBack,
+                canGoForward: webView.canGoForward,
+                hasOnlySecureContent: webView.hasOnlySecureContent
             )
+            if let prev = lastEmittedSnapshot {
+                let onlyProgressChanged = prev.title == next.title
+                    && prev.urlString == next.urlString
+                    && prev.isLoading == next.isLoading
+                    && prev.canGoBack == next.canGoBack
+                    && prev.canGoForward == next.canGoForward
+                    && prev.hasOnlySecureContent == next.hasOnlySecureContent
+                if onlyProgressChanged
+                    && abs(next.estimatedProgress - prev.estimatedProgress) < 0.04
+                    && next.estimatedProgress < 0.99
+                    && next.estimatedProgress > 0.01 {
+                    return
+                }
+                if prev == next {
+                    return
+                }
+            }
+            lastEmittedSnapshot = next
+            onStateChanged(next)
         }
 
         public func scrollViewDidScroll(_ scrollView: UIScrollView) {

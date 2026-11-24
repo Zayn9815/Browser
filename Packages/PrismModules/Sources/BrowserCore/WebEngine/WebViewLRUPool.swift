@@ -413,6 +413,7 @@ public final class WebViewLRUPool {
     }
 
     private func touchLRU(_ tabID: UUID) {
+        if accessOrder.last == tabID { return }
         accessOrder.removeAll { $0 == tabID }
         accessOrder.append(tabID)
     }

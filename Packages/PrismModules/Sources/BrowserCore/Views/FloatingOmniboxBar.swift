@@ -54,15 +54,17 @@ public struct FloatingOmniboxBar: View {
     }
 
     private var navigationUnionPill: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             Button {
                 hapticCounter += 1
                 store.goBack()
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.subheadline.weight(.semibold))
-                    .frame(width: 34, height: 34)
+                    .frame(width: 38, height: 42)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.borderless)
             .disabled(!store.activeTab.canGoBack)
             .opacity(store.activeTab.canGoBack ? 1.0 : 0.38)
             .accessibilityLabel("Back")
@@ -73,25 +75,28 @@ public struct FloatingOmniboxBar: View {
             } label: {
                 Image(systemName: "chevron.right")
                     .font(.subheadline.weight(.semibold))
-                    .frame(width: 34, height: 34)
+                    .frame(width: 38, height: 42)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.borderless)
             .disabled(!store.activeTab.canGoForward)
             .opacity(store.activeTab.canGoForward ? 1.0 : 0.38)
             .accessibilityLabel("Forward")
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 4)
         .foregroundStyle(.white)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .glassEffect(.regular, in: .capsule)
         .glassEffectUnion(id: "navCluster", namespace: omniboxNamespace)
     }
 
     private var addressCapsule: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 2) {
             if store.isOmniboxExpanded {
                 Image(systemName: "magnifyingglass")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(PrismBrandPalette.crimsonAccent)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 6)
 
                 TextField(
                     "Search \(store.selectedSearchEngine.displayName) or enter URL",
@@ -111,12 +116,18 @@ public struct FloatingOmniboxBar: View {
 
                 if !store.omniboxText.isEmpty {
                     Button {
+                        hapticCounter += 1
                         store.omniboxText = ""
+                        isAddressFieldFocused = true
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.white.opacity(0.6))
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.75))
+                            .frame(width: 38, height: 44)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Clear Address")
                 }
 
                 Button {
@@ -127,8 +138,11 @@ public struct FloatingOmniboxBar: View {
                     Image(systemName: "qrcode.viewfinder")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.white)
+                        .frame(width: 40, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
+                .padding(.trailing, 4)
                 .accessibilityLabel("Scan QR Code URL")
             } else {
                 Button {
@@ -148,9 +162,12 @@ public struct FloatingOmniboxBar: View {
                                 .foregroundStyle(.white.opacity(0.85))
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 6)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .accessibilityLabel("Site Security and Controls")
 
                 Button {
@@ -171,9 +188,10 @@ public struct FloatingOmniboxBar: View {
                                 .scaleEffect(y: 0.65)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
 
                 Button {
                     hapticCounter += 1
@@ -181,17 +199,18 @@ public struct FloatingOmniboxBar: View {
                 } label: {
                     Image(systemName: store.activeTab.isLoading ? "xmark" : "arrow.clockwise")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(.white.opacity(0.9))
-                        .frame(width: 28, height: 28)
+                        .foregroundStyle(.white.opacity(0.95))
+                        .frame(width: 40, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
+                .padding(.trailing, 4)
                 .accessibilityLabel(store.activeTab.isLoading ? "Stop Loading" : "Reload")
             }
         }
-        .padding(.horizontal, 14)
         .frame(height: 44)
         .frame(maxWidth: .infinity)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .glassEffect(.regular, in: .capsule)
         .glassEffectID("addressCapsule", in: omniboxNamespace)
     }
 
@@ -203,6 +222,7 @@ public struct FloatingOmniboxBar: View {
             Text("\(store.tabs.count)")
                 .font(.caption.weight(.bold).monospacedDigit())
                 .frame(minWidth: 32, minHeight: 32)
+                .contentShape(Circle())
         }
         .buttonStyle(.glass)
         .glassEffectID("rightChromeButton", in: omniboxNamespace)

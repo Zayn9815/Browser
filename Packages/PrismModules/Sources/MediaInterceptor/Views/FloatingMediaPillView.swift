@@ -41,8 +41,9 @@ public struct FloatingMediaPillView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
                         .glassEffect(.regular.interactive(), in: .capsule)
+                        .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
 
                     Button {
                         hapticCounter += 1
@@ -61,8 +62,9 @@ public struct FloatingMediaPillView: View {
                             .regular.tint(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0)).interactive(),
                             in: .capsule
                         )
+                        .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                 }
             }
             .sensoryFeedback(.impact(flexibility: .solid, intensity: 0.7), trigger: hapticCounter)

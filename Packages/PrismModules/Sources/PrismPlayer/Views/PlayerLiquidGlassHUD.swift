@@ -141,8 +141,9 @@ public struct PlayerLiquidGlassHUD: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
                         .glassEffect(.clear.interactive(), in: .capsule)
+                        .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
@@ -153,7 +154,7 @@ public struct PlayerLiquidGlassHUD: View {
     private var fullHUDOverlay: some View {
         VStack(spacing: 0) {
             // Top Liquid Glass Bar (Clear Glass over Video)
-            GlassEffectContainer(spacing: 16) {
+            GlassEffectContainer(spacing: 12) {
                 HStack(spacing: 10) {
                     Button {
                         hapticCounter += 1
@@ -162,10 +163,11 @@ public struct PlayerLiquidGlassHUD: View {
                         Image(systemName: "xmark")
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(.white)
-                            .frame(width: 38, height: 38)
+                            .frame(width: 44, height: 44)
                             .glassEffect(.clear.interactive(), in: .circle)
+                            .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .accessibilityLabel("Close Player")
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -192,10 +194,11 @@ public struct PlayerLiquidGlassHUD: View {
                                 Image(systemName: "pip.enter")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.white)
-                                    .frame(width: 36, height: 36)
+                                    .frame(width: 40, height: 40)
                                     .glassEffect(.clear.interactive(), in: .circle)
+                                    .contentShape(Circle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.borderless)
                             .accessibilityLabel("Picture in Picture")
                         }
 
@@ -206,10 +209,11 @@ public struct PlayerLiquidGlassHUD: View {
                             Image(systemName: isLandscapeLocked ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
-                                .frame(width: 36, height: 36)
+                                .frame(width: 40, height: 40)
                                 .glassEffect(.clear.interactive(), in: .circle)
+                                .contentShape(Circle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderless)
                         .accessibilityLabel("Rotate Orientation")
 
                         Button {
@@ -219,10 +223,11 @@ public struct PlayerLiquidGlassHUD: View {
                             Image(systemName: "lock.open.fill")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
-                                .frame(width: 36, height: 36)
+                                .frame(width: 40, height: 40)
                                 .glassEffect(.clear.interactive(), in: .circle)
+                                .contentShape(Circle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderless)
                         .accessibilityLabel("Lock Controls")
 
                         if canDownload {
@@ -238,20 +243,21 @@ public struct PlayerLiquidGlassHUD: View {
                                 }
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 12)
-                                .frame(height: 36)
+                                .frame(height: 40)
                                 .glassEffect(
                                     .clear.tint(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0)).interactive(),
                                     in: .capsule
                                 )
+                                .contentShape(Capsule())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.borderless)
                             .accessibilityLabel("Download Stream")
                         }
                     }
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 14)
+            .padding(.top, 12)
 
             Spacer()
 
@@ -267,8 +273,9 @@ public struct PlayerLiquidGlassHUD: View {
                             .foregroundStyle(.white)
                             .frame(width: 52, height: 52)
                             .glassEffect(.clear.interactive(), in: .circle)
+                            .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .accessibilityLabel("Rewind 10 seconds")
 
                     Button {
@@ -280,8 +287,9 @@ public struct PlayerLiquidGlassHUD: View {
                             .foregroundStyle(.white)
                             .frame(width: 68, height: 68)
                             .glassEffect(.clear.interactive(), in: .circle)
+                            .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .accessibilityLabel(isPlaying ? "Pause" : "Play")
 
                     Button {
@@ -293,8 +301,9 @@ public struct PlayerLiquidGlassHUD: View {
                             .foregroundStyle(.white)
                             .frame(width: 52, height: 52)
                             .glassEffect(.clear.interactive(), in: .circle)
+                            .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .accessibilityLabel("Forward 10 seconds")
                 }
             }
@@ -344,10 +353,11 @@ public struct PlayerLiquidGlassHUD: View {
                                 .font(.caption.weight(.bold).monospacedDigit())
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
+                                .padding(.vertical, 8)
                                 .glassEffect(.clear.interactive(), in: .capsule)
+                                .contentShape(Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderless)
 
                         Button {
                             hapticCounter += 1
@@ -357,10 +367,11 @@ public struct PlayerLiquidGlassHUD: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
+                                .padding(.vertical, 8)
                                 .glassEffect(.clear.interactive(), in: .capsule)
+                                .contentShape(Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderless)
 
                         Spacer()
 
@@ -373,10 +384,11 @@ public struct PlayerLiquidGlassHUD: View {
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 12)
-                                    .padding(.vertical, 7)
+                                    .padding(.vertical, 8)
                                     .glassEffect(.clear.interactive(), in: .capsule)
+                                    .contentShape(Capsule())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.borderless)
                         }
                     }
                 }

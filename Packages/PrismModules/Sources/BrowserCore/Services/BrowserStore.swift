@@ -238,9 +238,19 @@ public final class BrowserStore: WebViewNavigationEventDelegate {
     }
 
     public func reloadOrStop() {
-        guard let webView = webViewPool.existingWebView(for: activeTabID) else { return }
-        if webView.isLoading {
+        guard let webView = webViewPool.existingWebView(for: activeTabID) else {
+            if let idx = activeTabIndex {
+                tabs[idx].isLoading = false
+                tabs[idx].estimatedProgress = 0
+            }
+            return
+        }
+        if webView.isLoading || activeTab.isLoading {
             webView.stopLoading()
+            if let idx = activeTabIndex {
+                tabs[idx].isLoading = false
+                tabs[idx].estimatedProgress = 0
+            }
         } else {
             webView.reload()
         }
