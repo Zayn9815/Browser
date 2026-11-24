@@ -25,7 +25,7 @@ public struct BrowserSessionHeaderAdapter: Sendable {
     private static let maxCookieValueUTF8Bytes = 16_384
     private static let maxUserAgentUTF8Bytes = 2_048
     private static let maxOriginUTF8Bytes = 1_024
-    private static let defaultMinimumFreeDiskBytes: Int64 = 100 * 1024 * 1024
+    public static let defaultMinimumFreeDiskBytes: Int64 = 100 * 1024 * 1024
 
     public init() {}
 
