@@ -1,4 +1,5 @@
 import BrowserCore
+import ParallelDownloader
 import SwiftData
 import SwiftUI
 import VaultManager
@@ -9,6 +10,7 @@ public struct PrismDMApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var browserStore = BrowserStore()
+    @State private var downloadStore = ParallelDownloadStore()
     private let audioCenter = BackgroundAudioCenter.shared
     private let modelContainer: ModelContainer
 
@@ -25,6 +27,7 @@ public struct PrismDMApp: App {
             ZStack {
                 RootShellCoordinatorView(
                     browserStore: browserStore,
+                    downloadStore: downloadStore,
                     audioCenter: audioCenter
                 )
                 .modelContainer(modelContainer)

@@ -8,59 +8,35 @@ import VaultManager
 
 public struct RootShellCoordinatorView: View {
     @Bindable private var browserStore: BrowserStore
+    @Bindable private var downloadStore: ParallelDownloadStore
     @Bindable private var audioCenter: BackgroundAudioCenter
     @State private var selectedTab: PrismShellTab = .browser
 
     @State private var activePlayerHandoff: FullscreenPlaybackHandoff?
     @State private var qualityPickerItem: InterceptedMediaItem?
 
-    private let sdmSummary = ParallelDownloaderEngineDiagnostics.sdmCoreVersionSummary
-    private let ffmpegSummary = ParallelDownloaderEngineDiagnostics.ffmpegVersionSummary
-
     public init(
         browserStore: BrowserStore,
+        downloadStore: ParallelDownloadStore,
         audioCenter: BackgroundAudioCenter = .shared
     ) {
         self.browserStore = browserStore
+        self.downloadStore = downloadStore
         self.audioCenter = audioCenter
     }
 
     public var body: some View {
         BrowserShellView(
             store: browserStore,
+            downloadStore: downloadStore,
             audioCenter: audioCenter,
             selectedTab: $selectedTab,
-            activeDownloadCount: 0,
-            aggregateSpeedBytesPerSec: 0,
             onPlayVaultMedia: { fileURL, title in
-                let source = PlayableSource.vaultFile(
-                    id: UUID(),
-                    fileURL: fileURL,
-                    title: title,
-                    resumeSeconds: 0
-                )
-                activePlayerHandoff = FullscreenPlaybackHandoff(
-                    source: source,
-                    startTimeSeconds: 0,
-                    playbackRate: 1.0
-                )
+                presentLocalMediaInPlayer(fileURL: fileURL, title: title)
             },
             downloadsTabContent: {
-                NavigationStack {
-                    List {
-                        Section("Parallel Transfer Engines Ready") {
-                            Label(sdmSummary, systemImage: "bolt.horizontal.fill")
-                            Label(ffmpegSummary, systemImage: "film.stack.fill")
-                        }
-                        Section {
-                            ContentUnavailableView(
-                                "No Active Downloads",
-                                systemImage: "arrow.down.circle",
-                                description: Text("Downloads triggered in the browser or PrismPlayer will appear here once ParallelDownloader UI activates in Phase 4.")
-                            )
-                        }
-                    }
-                    .navigationTitle("Downloads")
+                DownloadsTabView(store: downloadStore) { fileURL, title in
+                    presentLocalMediaInPlayer(fileURL: fileURL, title: title)
                 }
             },
             browserOverlayContent: {
@@ -88,6 +64,7 @@ public struct RootShellCoordinatorView: View {
             }
         )
         .onAppear {
+            browserStore.downloadCoordinator = downloadStore
             browserStore.mediaInterceptor.onFullscreenHandoff = { handoff in
                 activePlayerHandoff = handoff
             }
@@ -136,6 +113,20 @@ public struct RootShellCoordinatorView: View {
         }
     }
 
+    private func presentLocalMediaInPlayer(fileURL: URL, title: String) {
+        let source = PlayableSource.vaultFile(
+            id: UUID(),
+            fileURL: fileURL,
+            title: title,
+            resumeSeconds: 0
+        )
+        activePlayerHandoff = FullscreenPlaybackHandoff(
+            source: source,
+            startTimeSeconds: 0,
+            playbackRate: 1.0
+        )
+    }
+
     private func handleInPlayerDownloadTap(_ source: PlayableSource) {
         guard case .remoteStream(_, let url, let title, let mimeType, let session, let variants) = source else {
             return
@@ -175,21 +166,16 @@ public struct RootShellCoordinatorView: View {
         let targetURL = selectedVariant?.url ?? item.streamURL
         let variantTitle = selectedVariant.map { "\(item.title) (\($0.displayLabel))" } ?? item.title
 
-        guard let coordinator = browserStore.downloadCoordinator else {
-            browserStore.showToast("Queued \(variantTitle) for ParallelDownloader")
-            return
-        }
-
         Task { @MainActor in
             do {
                 if item.containerHint.requiresHLSMuxer {
-                    _ = try await coordinator.enqueueHLSStreamMux(
+                    _ = try await downloadStore.enqueueHLSStreamMux(
                         manifestURL: targetURL,
                         variantTitle: variantTitle,
                         sessionContext: item.sessionContext
                     )
                 } else {
-                    _ = try await coordinator.enqueueHTTPDownload(
+                    _ = try await downloadStore.enqueueHTTPDownload(
                         url: targetURL,
                         sessionContext: item.sessionContext,
                         preferredEngine: nil,
@@ -205,16 +191,72 @@ public struct RootShellCoordinatorView: View {
     }
 
     private func handleIncomingURL(_ url: URL) {
+        if url.isFileURL {
+            handleIncomingDocumentURL(url)
+            return
+        }
+
         let scheme = url.scheme?.lowercased() ?? ""
         if scheme == "http" || scheme == "https" {
             selectedTab = .browser
             browserStore.createTab(url: url, isIncognito: false, activate: true)
-        } else if scheme == "prismdm" {
-            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-               let target = components.queryItems?.first(where: { $0.name == "url" })?.value,
-               let parsed = URL(string: target) {
+            return
+        }
+
+        if scheme == "prismdm",
+           let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let rawTarget = components.queryItems?.first(where: { $0.name == "url" })?.value,
+           let parsed = URL(string: rawTarget) {
+            let action = (url.host ?? "").lowercased()
+            if action == "download" {
+                selectedTab = .downloads
+                Task { @MainActor in
+                    let lower = parsed.absoluteString.lowercased()
+                    if lower.contains(".m3u8") || lower.contains(".mpd") {
+                        _ = try? await downloadStore.enqueueHLSStreamMux(
+                            manifestURL: parsed,
+                            variantTitle: nil,
+                            sessionContext: nil
+                        )
+                    } else {
+                        _ = try? await downloadStore.enqueueHTTPDownload(
+                            url: parsed,
+                            sessionContext: nil,
+                            preferredEngine: nil,
+                            connectionLimit: nil,
+                            bandwidthLimitBytesPerSec: nil
+                        )
+                    }
+                }
+            } else {
                 selectedTab = .browser
                 browserStore.createTab(url: parsed, isIncognito: false, activate: true)
+            }
+        }
+    }
+
+    private func handleIncomingDocumentURL(_ fileURL: URL) {
+        let accessed = fileURL.startAccessingSecurityScopedResource()
+        let kind = VaultMediaKind.infer(fromFileExtension: fileURL.pathExtension)
+
+        Task { @MainActor in
+            defer {
+                if accessed { fileURL.stopAccessingSecurityScopedResource() }
+            }
+            if let imported = try? await VaultFileService.shared.registerCompletedFile(
+                at: fileURL,
+                preferredFilename: fileURL.lastPathComponent,
+                mimeType: nil,
+                sourceURL: nil,
+                isPrivate: false
+            ), let root = try? VaultFileService.shared.vaultRootURL(isPrivate: false) {
+                let finalURL = root.appendingPathComponent(imported.relativePath)
+                if kind == .video || kind == .audio {
+                    presentLocalMediaInPlayer(fileURL: finalURL, title: imported.displayName)
+                } else {
+                    selectedTab = .vault
+                    browserStore.showToast("Imported \(imported.displayName) to Vault")
+                }
             }
         }
     }

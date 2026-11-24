@@ -102,6 +102,7 @@ let package = Package(
                 "ParallelDownloader",
                 "PrismPlayer",
                 "MediaInterceptor",
+                .product(name: "SDMCore", package: "SDMCore"),
             ],
             resources: [
                 .process("Resources"),
@@ -121,6 +122,7 @@ let package = Package(
                 "PrismPlayer",
                 "MediaInterceptor",
                 "BrowserCore",
+                .product(name: "SDMCore", package: "SDMCore"),
             ]
         ),
     ],

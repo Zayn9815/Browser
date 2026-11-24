@@ -2,9 +2,11 @@ import AdBlockEngine
 import MediaInterceptor
 import ParallelDownloader
 import PrismPlayer
+import SDMCore
 import SwiftData
 import SwiftUI
 import VaultManager
+import WebKit
 
 public enum PrismShellTab: Hashable, Sendable {
     case browser
@@ -18,11 +20,10 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
     @Query(sort: \BookmarkRecord.createdAt, order: .reverse) private var bookmarks: [BookmarkRecord]
 
     @Bindable public var store: BrowserStore
+    @Bindable public var downloadStore: ParallelDownloadStore
     @Bindable public var audioCenter: BackgroundAudioCenter
     @Binding public var selectedTab: PrismShellTab
 
-    private let activeDownloadCount: Int
-    private let aggregateSpeedBytesPerSec: UInt64
     private let onPlayVaultMedia: ((URL, String) -> Void)?
     private let downloadsTabContent: () -> DownloadsContent
     private let browserOverlayContent: () -> BrowserOverlayContent
@@ -30,29 +31,28 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
     @State private var promptInputText = ""
     @State private var authUsername = ""
     @State private var authPassword = ""
+    @State private var showClearDataConfirm = false
 
     public init(
         store: BrowserStore,
+        downloadStore: ParallelDownloadStore,
         audioCenter: BackgroundAudioCenter = .shared,
         selectedTab: Binding<PrismShellTab>,
-        activeDownloadCount: Int = 0,
-        aggregateSpeedBytesPerSec: UInt64 = 0,
         onPlayVaultMedia: ((URL, String) -> Void)? = nil,
         @ViewBuilder downloadsTabContent: @escaping () -> DownloadsContent,
         @ViewBuilder browserOverlayContent: @escaping () -> BrowserOverlayContent
     ) {
         self.store = store
+        self.downloadStore = downloadStore
         self.audioCenter = audioCenter
         self._selectedTab = selectedTab
-        self.activeDownloadCount = activeDownloadCount
-        self.aggregateSpeedBytesPerSec = aggregateSpeedBytesPerSec
         self.onPlayVaultMedia = onPlayVaultMedia
         self.downloadsTabContent = downloadsTabContent
         self.browserOverlayContent = browserOverlayContent
     }
 
     private var shouldShowBottomAccessory: Bool {
-        activeDownloadCount > 0 || audioCenter.hasActiveTrack
+        downloadStore.activeCount > 0 || audioCenter.hasActiveTrack
     }
 
     public var body: some View {
@@ -64,7 +64,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
             Tab("Downloads", systemImage: "arrow.down.circle.fill", value: PrismShellTab.downloads) {
                 downloadsTabContent()
             }
-            .badge(activeDownloadCount)
+            .badge(downloadStore.activeCount)
 
             Tab("Vault", systemImage: "lock.doc.fill", value: PrismShellTab.vault) {
                 VaultBrowserView(
@@ -80,9 +80,8 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .prismBottomAccessory(isVisible: shouldShowBottomAccessory) {
-            ShellBottomAccessoryBar(
-                activeDownloadCount: activeDownloadCount,
-                aggregateSpeedBytesPerSec: aggregateSpeedBytesPerSec,
+            TransferMiniBarView(
+                downloadStore: downloadStore,
                 audioCenter: audioCenter,
                 onOpenDownloads: { selectedTab = .downloads }
             )
@@ -90,6 +89,7 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
         .tint(PrismBrandPalette.crimsonAccent)
         .onAppear {
             store.attachModelContext(modelContext)
+            downloadStore.attachModelContext(modelContext)
         }
         .fullScreenCover(isPresented: $store.isTabGridPresented) {
             TabGridSwitcherView(store: store)
@@ -357,6 +357,40 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
     private var settingsView: some View {
         NavigationStack {
             List {
+                Section("Parallel Download Engine (SDMCore)") {
+                    Picker("Default HTTP Backend", selection: $downloadStore.preferredHTTPBackend) {
+                        Text("libcurl Multi-Range").tag(DownloadEngineKind.libcurl)
+                        Text("iOS Background URLSession").tag(DownloadEngineKind.urlSession)
+                    }
+
+                    Stepper(
+                        "Connections per Download: \(downloadStore.defaultConnectionsPerDownload)",
+                        value: $downloadStore.defaultConnectionsPerDownload,
+                        in: 1...16
+                    )
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Global Bandwidth Cap")
+                            Spacer()
+                            Text(downloadStore.globalBandwidthLimitBytesPerSec == 0
+                                ? "Unlimited"
+                                : "\(ByteCountFormatter.string(fromByteCount: Int64(downloadStore.globalBandwidthLimitBytesPerSec), countStyle: .file))/s")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { Double(downloadStore.globalBandwidthLimitBytesPerSec) / 1_000_000.0 },
+                                set: { downloadStore.globalBandwidthLimitBytesPerSec = UInt64(($0 * 1_000_000.0).rounded()) }
+                            ),
+                            in: 0...50,
+                            step: 1
+                        )
+                        .tint(PrismBrandPalette.crimsonAccent)
+                    }
+                }
+
                 Section("Browser Defaults") {
                     Picker("Default Search Engine", selection: Binding(
                         get: { store.selectedSearchEngine },
@@ -375,80 +409,111 @@ public struct BrowserShellView<DownloadsContent: View, BrowserOverlayContent: Vi
                     Toggle("Offline Ad & Tracker Blocker", isOn: $store.globalAdBlockEnabled)
                 }
 
-                Section("Privacy & Memory") {
-                    LabeledContent("LRU Active WebView Cap", value: "\(store.webViewPool.liveTabCount) / \(store.webViewPool.maxLiveWebViews)")
+                Section("Privacy & Browsing Data") {
+                    LabeledContent("LRU Active WebView Pool", value: "\(store.webViewPool.liveTabCount) / \(store.webViewPool.maxLiveWebViews)")
                     LabeledContent("Session Trackers Blocked", value: "\(store.trackerMonitor.sessionTotalBlocked)")
+                    LabeledContent("Offline AdBlock Shards", value: AdBlockManifestLoader.summary())
+
+                    Button("Clear Browsing Data & Cache", role: .destructive) {
+                        showClearDataConfirm = true
+                    }
+
                     Button("Lock Private Vault & Incognito", role: .destructive) {
                         store.authService.lock()
                         store.showToast("Private Vault & Incognito locked.")
                     }
                 }
 
-                Section("Native Engine Diagnostics") {
-                    LabeledContent("Download Engine", value: ParallelDownloaderEngineDiagnostics.sdmCoreVersionSummary)
-                    LabeledContent("HLS Muxer", value: ParallelDownloaderEngineDiagnostics.ffmpegVersionSummary)
+                Section("Native Engines & Legal") {
+                    LabeledContent("Download Core", value: ParallelDownloaderEngineDiagnostics.sdmCoreVersionSummary)
+                    LabeledContent("HLS Remux Core", value: ParallelDownloaderEngineDiagnostics.ffmpegVersionSummary)
                     LabeledContent("Universal Player", value: PrismPlayerEngineDiagnostics.mpvAPIVersionSummary)
                     LabeledContent("Vault Archive", value: VaultEngineDiagnostics.archiveEngineSummary)
-                    LabeledContent("AdBlock Shards", value: AdBlockManifestLoader.summary())
-                    LabeledContent("Media Bridge", value: "v\(MediaInterceptorBridgeInfo.loadSchemaVersion())")
+                    LabeledContent("Media Bridge", value: "Schema v\(MediaInterceptorBridgeInfo.loadSchemaVersion())")
+
+                    NavigationLink("Engine & Open Source Licenses") {
+                        OpenSourceLicensesView()
+                    }
                 }
             }
             .navigationTitle("Settings")
+            .confirmationDialog(
+                "Clear all browsing history, cookies, and web caches?",
+                isPresented: $showClearDataConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Clear Browsing Data", role: .destructive) {
+                    Task { await clearBrowsingData() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Downloaded Vault files and Bookmarks are preserved.")
+            }
         }
+    }
+
+    private func clearBrowsingData() async {
+        let allTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        await WKWebsiteDataStore.default().removeData(ofTypes: allTypes, modifiedSince: .distantPast)
+        if let entries = try? modelContext.fetch(FetchDescriptor<HistoryRecord>()) {
+            for entry in entries {
+                modelContext.delete(entry)
+            }
+            try? modelContext.save()
+        }
+        store.showToast("Cleared browsing history, cookies, and web cache.")
     }
 }
 
-// MARK: - Bottom Accessory Bar
+// MARK: - Open Source Licenses View
 
-private struct ShellBottomAccessoryBar: View {
-    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
-
-    let activeDownloadCount: Int
-    let aggregateSpeedBytesPerSec: UInt64
-    @Bindable var audioCenter: BackgroundAudioCenter
-    let onOpenDownloads: () -> Void
+private struct OpenSourceLicensesView: View {
+    private let notices: [(title: String, license: String, detail: String)] = [
+        (
+            "SwiftyDownloadManager (SDMCore & CurlBinary)",
+            "FSL-1.1-MIT • Copyright 2026 Kyle Ye",
+            "Integrates only the iOS arm64 SDMCore C++20 libcurl + URLSession transfer engine and bundled Mozilla CA certificate bundle (cacert.pem). No SwiftyDownloadManager brand assets, icons, or trademarks are included. Subcomponents: libcurl (curl License), OpenSSL (Apache-2.0), Mozilla NSS CA Bundle (MPL-2.0)."
+        ),
+        (
+            "FFmpegKit & libmpv (kingslay/FFmpegKit 9.0.2)",
+            "LGPL-2.1-or-later / MIT / BSD",
+            "Powers in-process Libavformat/Libavcodec HTTPS HLS-to-MP4 remuxing (-c copy, aac_adtstoasc) and libmpv + VideoToolbox + MoltenVK universal container playback (MKV, AVI, WebM, FLV, ASS/SSA)."
+        ),
+        (
+            "ZIPFoundation (0.9.21)",
+            "MIT License • Copyright Thomas Zoechling",
+            "Provides in-app Vault ZIP archive compression and path-traversal-validated extraction."
+        ),
+        (
+            "Mozilla Readability.js (0.6.0)",
+            "Apache-2.0 / MPL-2.0 • Mozilla Corporation",
+            "Runs isolated in WebKit's .defaultClient world to extract clean Reader Mode articles."
+        ),
+        (
+            "EasyList & EasyPrivacy Filter Packs",
+            "GPL-3.0 / CC-BY-SA-3.0",
+            "Compiled and sharded at build time into WebKit Content Blocker JSON lists (<= 125,000 rules per shard) for offline ad and tracker blocking."
+        ),
+    ]
 
     var body: some View {
-        HStack(spacing: 10) {
-            if activeDownloadCount > 0 {
-                Button(action: onOpenDownloads) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .foregroundStyle(PrismBrandPalette.crimsonAccent)
-                        Text(placement == .inline
-                            ? "\(activeDownloadCount) DL"
-                            : "\(activeDownloadCount) active • \(ByteCountFormatter.string(fromByteCount: Int64(aggregateSpeedBytesPerSec), countStyle: .file))/s")
-                            .font(.caption.weight(.semibold).monospacedDigit())
-                            .lineLimit(1)
-                    }
+        List {
+            ForEach(notices, id: \.title) { item in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.title)
+                        .font(.headline)
+                    Text(item.license)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(PrismBrandPalette.crimsonAccent)
+                    Text(item.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-            } else if audioCenter.hasActiveTrack {
-                Image(systemName: "waveform")
-                    .foregroundStyle(PrismBrandPalette.crimsonAccent)
-                Text(audioCenter.currentTitle)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Button {
-                    audioCenter.togglePlayPause()
-                } label: {
-                    Image(systemName: audioCenter.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.caption.weight(.bold))
-                }
-                .buttonStyle(.plain)
-                if placement != .inline {
-                    Button {
-                        audioCenter.stop()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .buttonStyle(.plain)
-                }
+                .padding(.vertical, 4)
             }
         }
-        .padding(.horizontal, 12)
+        .navigationTitle("Open Source Licenses")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
