@@ -1,6 +1,42 @@
 import Foundation
 import SDMCore
 
+public enum PrismDefaultDownloaderMode: String, Codable, Sendable, CaseIterable, Identifiable {
+    case libcurlParallel
+    case urlSessionBackground
+    case smartHybrid
+
+    public var id: String { rawValue }
+
+    public var displayTitle: String {
+        switch self {
+        case .libcurlParallel:
+            return "libcurl Multi-Range Parallel"
+        case .urlSessionBackground:
+            return "iOS Background URLSession"
+        case .smartHybrid:
+            return "Auto / Smart Hybrid"
+        }
+    }
+
+    public var shortLabel: String {
+        switch self {
+        case .libcurlParallel: return "libcurl"
+        case .urlSessionBackground: return "URLSession"
+        case .smartHybrid: return "Smart Hybrid"
+        }
+    }
+
+    public var underlyingSDMEngine: DownloadEngineKind {
+        switch self {
+        case .libcurlParallel, .smartHybrid:
+            return .libcurl
+        case .urlSessionBackground:
+            return .urlSession
+        }
+    }
+}
+
 public enum PrismTransferBackendKind: String, Codable, Sendable, CaseIterable {
     case sdmLibcurlRange
     case sdmBackgroundSession
@@ -13,7 +49,7 @@ public enum PrismTransferBackendKind: String, Codable, Sendable, CaseIterable {
         case .sdmBackgroundSession:
             return "iOS Background URLSession"
         case .ffmpegHLSMuxer:
-            return "FFmpeg HLS Muxer"
+            return "FFmpeg HLS Parallel"
         }
     }
 }
@@ -26,9 +62,11 @@ public struct UnifiedDownloadItem: Identifiable, Sendable, Equatable {
     public let destinationURL: URL?
     public let state: DownloadState
     public let totalBytes: UInt64?
+    public let isTotalBytesEstimated: Bool
     public let downloadedBytes: UInt64
     public let speedBytesPerSecond: UInt64
     public let etaSeconds: Double?
+    public let formattedETALabel: String
     public let mediaProgressFraction: Double?
     public let segments: [DownloadSegmentSnapshot]
     public let errorMessage: String?
@@ -42,9 +80,11 @@ public struct UnifiedDownloadItem: Identifiable, Sendable, Equatable {
         destinationURL: URL? = nil,
         state: DownloadState,
         totalBytes: UInt64? = nil,
+        isTotalBytesEstimated: Bool = false,
         downloadedBytes: UInt64 = 0,
         speedBytesPerSecond: UInt64 = 0,
         etaSeconds: Double? = nil,
+        formattedETALabel: String = "",
         mediaProgressFraction: Double? = nil,
         segments: [DownloadSegmentSnapshot] = [],
         errorMessage: String? = nil,
@@ -57,9 +97,11 @@ public struct UnifiedDownloadItem: Identifiable, Sendable, Equatable {
         self.destinationURL = destinationURL
         self.state = state
         self.totalBytes = totalBytes
+        self.isTotalBytesEstimated = isTotalBytesEstimated
         self.downloadedBytes = downloadedBytes
         self.speedBytesPerSecond = speedBytesPerSecond
         self.etaSeconds = etaSeconds
+        self.formattedETALabel = formattedETALabel
         self.mediaProgressFraction = mediaProgressFraction
         self.segments = segments
         self.errorMessage = errorMessage
@@ -81,5 +123,17 @@ public struct UnifiedDownloadItem: Identifiable, Sendable, Equatable {
         case .paused, .completed, .failed, .cancelled:
             return false
         }
+    }
+
+    public var formattedSizeRatio: String {
+        let doneStr = ByteCountFormatter.string(fromByteCount: Int64(downloadedBytes), countStyle: .file)
+        guard let totalBytes, totalBytes > 0 else {
+            return doneStr
+        }
+        let totalStr = ByteCountFormatter.string(fromByteCount: Int64(totalBytes), countStyle: .file)
+        if isTotalBytesEstimated && state != .completed {
+            return "\(doneStr) / ~\(totalStr)"
+        }
+        return "\(doneStr) / \(totalStr)"
     }
 }

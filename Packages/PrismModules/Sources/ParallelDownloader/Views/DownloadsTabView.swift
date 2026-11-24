@@ -1,9 +1,12 @@
+import PrismCore
 import SDMCore
 import SwiftUI
 
 public struct DownloadsTabView: View {
     @Bindable private var store: ParallelDownloadStore
+    @State private var themeEngine = PrismThemeEngine.shared
     private let onPlayCompletedMedia: ((URL, String) -> Void)?
+    private let onDismiss: (() -> Void)?
 
     @State private var showNewDownloadSheet = false
     @State private var filterSegment = 0
@@ -11,10 +14,12 @@ public struct DownloadsTabView: View {
 
     public init(
         store: ParallelDownloadStore,
-        onPlayCompletedMedia: ((URL, String) -> Void)? = nil
+        onPlayCompletedMedia: ((URL, String) -> Void)? = nil,
+        onDismiss: (() -> Void)? = nil
     ) {
         self.store = store
         self.onPlayCompletedMedia = onPlayCompletedMedia
+        self.onDismiss = onDismiss
     }
 
     private var displayedItems: [UnifiedDownloadItem] {
@@ -29,6 +34,7 @@ public struct DownloadsTabView: View {
     }
 
     public var body: some View {
+        let tokens = themeEngine.tokens
         NavigationStack {
             VStack(spacing: 0) {
                 Picker("Filter", selection: $filterSegment) {
@@ -41,7 +47,7 @@ public struct DownloadsTabView: View {
                 .padding(.vertical, 8)
 
                 if store.activeCount > 0 {
-                    aggregateTelemetryBanner
+                    aggregateTelemetryBanner(tokens: tokens)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 6)
                 }
@@ -62,7 +68,7 @@ public struct DownloadsTabView: View {
                         )
                     } else {
                         ForEach(displayedItems) { item in
-                            downloadCardRow(item)
+                            downloadCardRow(item, tokens: tokens)
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     if item.state == .completed {
                                         Button(role: .destructive) {
@@ -82,9 +88,18 @@ public struct DownloadsTabView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+                .background(tokens.canvasBackground)
             }
+            .background(tokens.canvasBackground.ignoresSafeArea())
             .navigationTitle("Downloads")
             .toolbar {
+                if let onDismiss {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Done", action: onDismiss)
+                            .fontWeight(.semibold)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showNewDownloadSheet = true
@@ -106,96 +121,113 @@ public struct DownloadsTabView: View {
                 Text(errorAlertMessage ?? "")
             }
         }
+        .tint(tokens.accent)
     }
 
-    private var aggregateTelemetryBanner: some View {
+    private func aggregateTelemetryBanner(tokens: PrismThemeTokens) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "bolt.horizontal.fill")
-                .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                .foregroundStyle(tokens.accent)
             Text("\(store.activeCount) Active Transfer\(store.activeCount == 1 ? "" : "s")")
                 .font(.caption.weight(.semibold))
+                .foregroundStyle(tokens.primaryText)
             Spacer()
-            Text("\(ByteCountFormatter.string(fromByteCount: Int64(store.aggregateBytesPerSecond), countStyle: .file))/s")
-                .font(.caption.weight(.bold).monospacedDigit())
-                .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+            HStack(spacing: 6) {
+                Text("\(ByteCountFormatter.string(fromByteCount: Int64(store.aggregateBytesPerSecond), countStyle: .file))/s")
+                    .font(.caption.weight(.bold).monospacedDigit())
+                    .foregroundStyle(tokens.accent)
+                if !store.compactAggregateETA.isEmpty {
+                    Text("•")
+                        .font(.caption2)
+                        .foregroundStyle(tokens.secondaryText)
+                    Text(store.compactAggregateETA)
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(tokens.secondaryText)
+                }
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(
             ConcentricRectangle(corners: .concentric(minimum: 12), isUniform: true)
-                .fill(Color.white.opacity(0.06))
+                .fill(tokens.cardSurface)
         )
         .containerShape(.rect(cornerRadius: 16))
     }
 
-    private func downloadCardRow(_ item: UnifiedDownloadItem) -> some View {
+    private func downloadCardRow(_ item: UnifiedDownloadItem, tokens: PrismThemeTokens) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.resolvedFilename)
                         .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(tokens.primaryText)
                         .lineLimit(1)
                     HStack(spacing: 6) {
                         Text(item.backend.displayTitle)
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                            .foregroundStyle(tokens.accent)
                         Text("•")
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(tokens.secondaryText)
                         Text(stateLabel(for: item.state))
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(tokens.secondaryText)
                     }
                 }
                 Spacer(minLength: 4)
-                rowActionButtons(for: item)
+                rowActionButtons(for: item, tokens: tokens)
             }
 
-            // Per-segment Range visualization for multi-connection libcurl transfers
+            // Segmented chunk visualization for BOTH multi-range HTTP and parallel chunked HLS
             if !item.segments.isEmpty {
-                SegmentRangeBarView(segments: item.segments, totalBytes: item.totalBytes)
-                    .frame(height: 8)
+                SegmentRangeBarView(
+                    segments: item.segments,
+                    totalBytes: item.totalBytes,
+                    accentColor: tokens.accent,
+                    trackColor: tokens.hairline
+                )
+                .frame(height: 8)
             } else if let fraction = item.progressFraction {
                 ProgressView(value: fraction)
-                    .tint(item.state == .completed ? .green : Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                    .tint(item.state == .completed ? .green : tokens.accent)
             } else if item.isActive {
                 ProgressView()
                     .progressViewStyle(.linear)
-                    .tint(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                    .tint(tokens.accent)
             }
 
-            HStack(spacing: 8) {
-                let doneStr = ByteCountFormatter.string(fromByteCount: Int64(item.downloadedBytes), countStyle: .file)
-                if let total = item.totalBytes, total > 0 {
-                    let totalStr = ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file)
-                    Text("\(doneStr) / \(totalStr)")
-                } else {
-                    Text(doneStr)
-                }
+            HStack(spacing: 6) {
+                Text(item.formattedSizeRatio)
+                    .foregroundStyle(tokens.secondaryText)
 
                 if item.isActive && item.speedBytesPerSecond > 0 {
                     Text("•")
+                        .foregroundStyle(tokens.secondaryText)
                     Text("\(ByteCountFormatter.string(fromByteCount: Int64(item.speedBytesPerSecond), countStyle: .file))/s")
-                        .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                        .foregroundStyle(tokens.accent)
+                        .fontWeight(.semibold)
                 }
 
-                Spacer()
+                Spacer(minLength: 4)
 
                 if !item.segments.isEmpty && item.isActive {
-                    Text("\(item.segments.count) segs")
+                    Text("\(item.segments.count) ch")
+                        .foregroundStyle(tokens.tertiaryText)
                 }
 
-                if let eta = item.etaSeconds, eta > 0, eta.isFinite, item.isActive {
-                    Text("ETA \(formatETA(eta))")
+                if item.isActive && !item.formattedETALabel.isEmpty {
+                    Text(item.formattedETALabel)
+                        .foregroundStyle(tokens.primaryText.opacity(0.86))
+                        .fontWeight(.medium)
                 }
             }
             .font(.caption2.monospacedDigit())
-            .foregroundStyle(.secondary)
 
             if let error = item.errorMessage, !error.isEmpty {
                 Text(error)
                     .font(.caption2)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(tokens.destructive)
                     .lineLimit(2)
             }
         }
@@ -230,7 +262,7 @@ public struct DownloadsTabView: View {
     }
 
     @ViewBuilder
-    private func rowActionButtons(for item: UnifiedDownloadItem) -> some View {
+    private func rowActionButtons(for item: UnifiedDownloadItem, tokens: PrismThemeTokens) -> some View {
         HStack(spacing: 10) {
             switch item.state {
             case .downloading, .probing, .queued, .retrying:
@@ -239,7 +271,7 @@ public struct DownloadsTabView: View {
                 } label: {
                     Image(systemName: "pause.circle.fill")
                         .font(.title3)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(tokens.primaryText)
                 }
                 .buttonStyle(.borderless)
 
@@ -248,7 +280,7 @@ public struct DownloadsTabView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title3)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(tokens.secondaryText)
                 }
                 .buttonStyle(.borderless)
 
@@ -258,7 +290,7 @@ public struct DownloadsTabView: View {
                 } label: {
                     Image(systemName: "play.circle.fill")
                         .font(.title3)
-                        .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                        .foregroundStyle(tokens.accent)
                 }
                 .buttonStyle(.borderless)
 
@@ -268,7 +300,7 @@ public struct DownloadsTabView: View {
                 } label: {
                     Image(systemName: "arrow.clockwise.circle.fill")
                         .font(.title3)
-                        .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                        .foregroundStyle(tokens.accent)
                 }
                 .buttonStyle(.borderless)
 
@@ -279,7 +311,7 @@ public struct DownloadsTabView: View {
                     } label: {
                         Image(systemName: "play.circle.fill")
                             .font(.title3)
-                            .foregroundStyle(Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                            .foregroundStyle(tokens.accent)
                     }
                     .buttonStyle(.borderless)
                 }
@@ -314,33 +346,26 @@ public struct DownloadsTabView: View {
         case .pausing: return "Pausing"
         case .paused: return "Paused"
         case .retrying: return "Retrying"
-        case .finalizing: return "Finalizing"
+        case .finalizing: return "Remuxing"
         case .completed: return "Completed"
         case .failed: return "Failed"
         case .cancelled: return "Cancelled"
         }
     }
-
-    private func formatETA(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
-        if total < 60 { return "\(total)s" }
-        let m = total / 60
-        let s = total % 60
-        if m < 60 { return "\(m)m \(s)s" }
-        return "\(m / 60)h \(m % 60)m"
-    }
 }
 
-/// Visualizes per-range chunk progress for SDMCore multi-connection libcurl downloads.
+/// Visualizes per-range chunk progress for both SDMCore multi-connection libcurl and Parallel HLS downloads.
 private struct SegmentRangeBarView: View {
     let segments: [DownloadSegmentSnapshot]
     let totalBytes: UInt64?
+    let accentColor: Color
+    let trackColor: Color
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.white.opacity(0.12))
+                    .fill(trackColor)
 
                 if let total = totalBytes, total > 0 {
                     ForEach(segments) { seg in
@@ -348,9 +373,7 @@ private struct SegmentRangeBarView: View {
                         let doneFrac = Double(seg.downloadedBytes) / Double(total)
                         let isComplete = seg.downloadedBytes >= seg.totalBytes
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(isComplete
-                                ? Color.green
-                                : Color(red: 220.0 / 255.0, green: 20.0 / 255.0, blue: 60.0 / 255.0))
+                            .fill(isComplete ? Color.green : accentColor)
                             .frame(
                                 width: max(2, geo.size.width * CGFloat(doneFrac)),
                                 height: geo.size.height

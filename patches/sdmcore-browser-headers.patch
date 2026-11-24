@@ -113,7 +113,7 @@ index 9c1563f..5d2f93e 100644
          cookies.filter { $0.expirationDate.map { $0 > Date.now.timeIntervalSince1970 } ?? true }
              .map(\.netscapeLine).joined(separator: "\n")
 diff --git a/Packages/SDMCore/Sources/SDMEngine/Engine.cpp b/Packages/SDMCore/Sources/SDMEngine/Engine.cpp
-index e1d5185..3b98168 100644
+index e1d5185..d84b049 100644
 --- a/Packages/SDMCore/Sources/SDMEngine/Engine.cpp
 +++ b/Packages/SDMCore/Sources/SDMEngine/Engine.cpp
 @@ -964,6 +964,18 @@ private:
@@ -135,6 +135,84 @@ index e1d5185..3b98168 100644
              if (lowercase(task.request.url.substr(0, 8)) == "https://") {
                  curl_easy_setopt(transfer->easy, CURLOPT_REDIR_PROTOCOLS_STR, "https");
              }
+@@ -1373,32 +1385,57 @@ private:
+             const auto range = iterator == transfer.headers.end()
+                 ? std::nullopt
+                 : parse_content_range(iterator->second);
+-            if (transfer.response_status != 206 || !range || range->start != 0 ||
+-                range->end != 0) {
++            if (transfer.response_status == 206 && range && range->start == 0 &&
++                range->end == 0) {
++                if (range->total) {
++                    task.snapshot.content_length_known = true;
++                    task.snapshot.content_length = *range->total;
++                    task.accepts_ranges = true;
++                } else {
++                    task.accepts_ranges = false;
++                }
++            } else if (transfer.response_status == 200) {
++                // Server ignored Range header; fall back cleanly to single-stream download
++                task.accepts_ranges = false;
++                if (!task.snapshot.content_length_known) {
++                    if (transfer.content_length) {
++                        task.snapshot.content_length_known = true;
++                        task.snapshot.content_length = *transfer.content_length;
++                    } else if (const auto cl = transfer.headers.find("content-length");
++                               cl != transfer.headers.end()) {
++                        if (const auto parsed = parse_unsigned(cl->second)) {
++                            task.snapshot.content_length_known = true;
++                            task.snapshot.content_length = *parsed;
++                        }
++                    }
++                }
++            } else {
+                 fail_task(task, Result::protocol_error, "Range probe returned invalid metadata");
+                 return;
+             }
+-            if (range->total) {
++        } else {
++            if (transfer.content_length) {
+                 task.snapshot.content_length_known = true;
+-                task.snapshot.content_length = *range->total;
+-                task.accepts_ranges = true;
+-            } else {
+-                task.accepts_ranges = false;
++                task.snapshot.content_length = *transfer.content_length;
++            } else if (const auto iterator = transfer.headers.find("content-length");
++                       iterator != transfer.headers.end()) {
++                if (const auto parsed = parse_unsigned(iterator->second)) {
++                    task.snapshot.content_length_known = true;
++                    task.snapshot.content_length = *parsed;
++                }
+             }
+-        } else if (transfer.content_length) {
+-            task.snapshot.content_length_known = true;
+-            task.snapshot.content_length = *transfer.content_length;
+-        } else if (const auto iterator = transfer.headers.find("content-length");
+-                   iterator != transfer.headers.end()) {
+-            if (const auto parsed = parse_unsigned(iterator->second)) {
+-                task.snapshot.content_length_known = true;
+-                task.snapshot.content_length = *parsed;
++            if (const auto iterator = transfer.headers.find("accept-ranges");
++                iterator != transfer.headers.end()) {
++                task.accepts_ranges = lowercase(iterator->second).find("bytes") !=
++                    std::string::npos;
++            }
++            // CDNs often omit Accept-Ranges or Content-Length on HEAD; probe Range: bytes=0-0 once
++            if ((!task.accepts_ranges || !task.snapshot.content_length_known) &&
++                !task.attempted_range_probe) {
++                task.attempted_range_probe = true;
++                start_probe_range(task);
++                return;
+             }
+-        }
+-        if (const auto iterator = transfer.headers.find("accept-ranges");
+-            iterator != transfer.headers.end()) {
+-            task.accepts_ranges = lowercase(iterator->second).find("bytes") !=
+-                std::string::npos;
+         }
+         if (const auto iterator = transfer.headers.find("etag");
+             iterator != transfer.headers.end()) {
 diff --git a/Packages/SDMCore/Sources/SDMEngine/include/SDMEngine.h b/Packages/SDMCore/Sources/SDMEngine/include/SDMEngine.h
 index 0429220..d4a54d7 100644
 --- a/Packages/SDMCore/Sources/SDMEngine/include/SDMEngine.h

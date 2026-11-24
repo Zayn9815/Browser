@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import PrismCore
 import SDMCore
 import SwiftData
 import VaultManager
@@ -10,6 +11,7 @@ private struct PersistedHLSTaskRecord: Codable, Sendable {
     let resolvedFilename: String
     let destinationURL: URL?
     let state: DownloadState
+    let totalBytes: UInt64?
     let downloadedBytes: UInt64
     let isIncognito: Bool
     let errorMessage: String?
@@ -21,6 +23,16 @@ private struct PersistedHLSTaskRecord: Codable, Sendable {
 public final class ParallelDownloadStore: ParallelDownloadCoordinating {
     public private(set) var items: [UnifiedDownloadItem] = []
     public private(set) var engineStartupError: String?
+
+    public var defaultDownloaderMode: PrismDefaultDownloaderMode {
+        didSet {
+            UserDefaults.standard.set(defaultDownloaderMode.rawValue, forKey: Self.downloaderModePrefKey)
+            let nextBackend = defaultDownloaderMode.underlyingSDMEngine
+            if preferredHTTPBackend != nextBackend {
+                preferredHTTPBackend = nextBackend
+            }
+        }
+    }
 
     public var preferredHTTPBackend: DownloadEngineKind {
         didSet {
@@ -41,6 +53,16 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
         }
     }
 
+    public var maxConcurrentDownloads: Int {
+        didSet {
+            let clamped = min(max(maxConcurrentDownloads, 1), 6)
+            if clamped != maxConcurrentDownloads {
+                maxConcurrentDownloads = clamped
+            }
+            UserDefaults.standard.set(clamped, forKey: Self.maxConcurrentPrefKey)
+        }
+    }
+
     public var globalBandwidthLimitBytesPerSec: UInt64 {
         didSet {
             UserDefaults.standard.set(Int64(globalBandwidthLimitBytesPerSec), forKey: Self.bandwidthPrefKey)
@@ -55,9 +77,22 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
         items.filter(\.isActive).reduce(0) { $0 &+ $1.speedBytesPerSecond }
     }
 
+    /// Shortest live ETA across all active transfers for compact display in the floating mini-bar.
+    public var compactAggregateETA: String {
+        let active = items.filter(\.isActive)
+        guard !active.isEmpty else { return "" }
+        let knownETAs = active.compactMap(\.etaSeconds).filter { $0.isFinite && $0 > 0 }
+        if let maxRemaining = knownETAs.max() {
+            return SpeedETASmoother.formatETA(maxRemaining)
+        }
+        return "Calculating..."
+    }
+
     public static let backgroundSessionIdentifier = "com.prismdm.ios.background-downloads"
+    private static let downloaderModePrefKey = "prismdm.v2.defaultDownloaderMode"
     private static let enginePrefKey = "prismdm.v1.downloadEngine"
     private static let connectionsPrefKey = "prismdm.v1.downloadConnections"
+    private static let maxConcurrentPrefKey = "prismdm.v2.maxConcurrentDownloads"
     private static let bandwidthPrefKey = "prismdm.v1.downloadBandwidthCap"
     private static let hlsHistoryKey = "prismdm.v1.hlsTaskHistory"
 
@@ -71,9 +106,10 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
     private var sdmSnapshotsByID: [UUID: UnifiedDownloadItem] = [:]
     private var hlsItemsByID: [UUID: UnifiedDownloadItem] = [:]
     private var hlsActiveTasks: [UUID: Task<Void, Never>] = [:]
-    private var hlsRetryInputs: [UUID: (url: URL, title: String?, session: BrowserSessionContext?)] = [:]
+    private var hlsRetryInputs: [UUID: (url: URL, title: String?, session: BrowserSessionContext?, outputURL: URL)] = [:]
     private var incognitoFlagsByTaskID: [UUID: Bool] = [:]
     private var registeredCompletedIDs: Set<UUID> = []
+    private var etaSmoother = SpeedETASmoother(alpha: 0.28)
 
     /// 6 Hz (166 ms) UI publication throttling state (zero idle Timer loops)
     private var lastPublishTime: Date = .distantPast
@@ -82,15 +118,24 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
     public init(vaultService: VaultFileService = .shared) {
         self.vaultService = vaultService
 
-        if let savedRaw = UserDefaults.standard.string(forKey: Self.enginePrefKey),
-           let savedEngine = DownloadEngineKind(rawValue: savedRaw) {
+        if let savedModeRaw = UserDefaults.standard.string(forKey: Self.downloaderModePrefKey),
+           let savedMode = PrismDefaultDownloaderMode(rawValue: savedModeRaw) {
+            self.defaultDownloaderMode = savedMode
+            self.preferredHTTPBackend = savedMode.underlyingSDMEngine
+        } else if let savedRaw = UserDefaults.standard.string(forKey: Self.enginePrefKey),
+                  let savedEngine = DownloadEngineKind(rawValue: savedRaw) {
             self.preferredHTTPBackend = savedEngine
+            self.defaultDownloaderMode = savedEngine == .urlSession ? .urlSessionBackground : .libcurlParallel
         } else {
+            self.defaultDownloaderMode = .libcurlParallel
             self.preferredHTTPBackend = .libcurl
         }
 
         let savedConnections = UserDefaults.standard.integer(forKey: Self.connectionsPrefKey)
         self.defaultConnectionsPerDownload = (1...16).contains(savedConnections) ? savedConnections : 8
+
+        let savedConcurrent = UserDefaults.standard.integer(forKey: Self.maxConcurrentPrefKey)
+        self.maxConcurrentDownloads = (1...6).contains(savedConcurrent) ? savedConcurrent : 3
 
         let savedCap = UserDefaults.standard.object(forKey: Self.bandwidthPrefKey) as? Int64
         self.globalBandwidthLimitBytesPerSec = savedCap.map { UInt64(max(0, $0)) } ?? 0
@@ -139,7 +184,7 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
 
         let isIncognito = sessionContext?.isIncognito ?? false
         let destinationDir = try vaultService.vaultRootURL(isPrivate: isIncognito)
-        let targetEngine = preferredEngine ?? preferredHTTPBackend
+        let targetEngine = preferredEngine ?? defaultDownloaderMode.underlyingSDMEngine
 
         let effectiveConnections: Int
         let effectiveBandwidth: UInt64?
@@ -167,6 +212,13 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
             requestContext: sdmContext
         )
 
+        PrismLogCenter.record(
+            .info,
+            category: .downloader,
+            "Enqueued HTTP download via \(targetEngine.rawValue) (\(effectiveConnections) conns): \(url.host ?? "unknown")",
+            isPrivateContext: isIncognito
+        )
+
         _ = try await sdmManager.enqueue(request, using: targetEngine)
         return downloadID.rawValue
     }
@@ -185,34 +237,61 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
 
         let taskID = UUID()
         let isIncognito = sessionContext?.isIncognito ?? false
-        incognitoFlagsByTaskID[taskID] = isIncognito
-        hlsRetryInputs[taskID] = (manifestURL, variantTitle, sessionContext)
-
         let destinationDir = try vaultService.vaultRootURL(isPrivate: isIncognito)
         let rawName = (variantTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
             ? variantTitle!
             : (sessionContext?.suggestedFilename ?? manifestURL.deletingPathExtension().lastPathComponent)
         let baseName = rawName.lowercased().hasSuffix(".mp4") ? rawName : "\(rawName).mp4"
         let outputURL = await vaultService.uniqueDestinationURL(in: destinationDir, preferredFilename: baseName)
-        let crlfHeaders = headerAdapter.makeFFmpegCRLFHeaders(from: sessionContext, for: manifestURL)
 
-        let initialItem = UnifiedDownloadItem(
+        launchHLSTask(
+            taskID: taskID,
+            manifestURL: manifestURL,
+            variantTitle: variantTitle,
+            sessionContext: sessionContext,
+            outputURL: outputURL,
+            isIncognito: isIncognito
+        )
+        return taskID
+    }
+
+    private func launchHLSTask(
+        taskID: UUID,
+        manifestURL: URL,
+        variantTitle: String?,
+        sessionContext: BrowserSessionContext?,
+        outputURL: URL,
+        isIncognito: Bool
+    ) {
+        incognitoFlagsByTaskID[taskID] = isIncognito
+        hlsRetryInputs[taskID] = (manifestURL, variantTitle, sessionContext, outputURL)
+
+        let crlfHeaders = headerAdapter.makeFFmpegCRLFHeaders(from: sessionContext, for: manifestURL)
+        let httpHeaders = headerAdapter.makeHTTPHeadersDictionary(from: sessionContext, for: manifestURL)
+        let connections = defaultConnectionsPerDownload
+
+        let existingDownloaded = hlsItemsByID[taskID]?.downloadedBytes ?? 0
+        let existingTotal = hlsItemsByID[taskID]?.totalBytes
+        let existingCreated = hlsItemsByID[taskID]?.createdAt ?? .now
+
+        hlsItemsByID[taskID] = UnifiedDownloadItem(
             id: taskID,
             backend: .ffmpegHLSMuxer,
             sourceURL: manifestURL,
             resolvedFilename: outputURL.lastPathComponent,
             destinationURL: outputURL,
             state: .queued,
-            totalBytes: nil,
-            downloadedBytes: 0,
+            totalBytes: existingTotal,
+            isTotalBytesEstimated: true,
+            downloadedBytes: existingDownloaded,
             speedBytesPerSecond: 0,
             etaSeconds: nil,
-            mediaProgressFraction: 0,
-            segments: [],
+            formattedETALabel: "Calculating...",
+            mediaProgressFraction: hlsItemsByID[taskID]?.mediaProgressFraction ?? 0,
+            segments: hlsItemsByID[taskID]?.segments ?? [],
             errorMessage: nil,
-            createdAt: .now
+            createdAt: existingCreated
         )
-        hlsItemsByID[taskID] = initialItem
         publishMergedItems(forceImmediate: true)
         persistHLSHistory()
 
@@ -222,7 +301,10 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
                 taskID: taskID,
                 sourceURL: manifestURL,
                 outputURL: outputURL,
-                crlfHeaders: crlfHeaders
+                crlfHeaders: crlfHeaders,
+                httpHeaders: httpHeaders,
+                connectionLimit: connections,
+                isPrivateContext: isIncognito
             )
             for await event in stream {
                 self.handleHLSMuxEvent(event, isIncognito: isIncognito)
@@ -230,7 +312,6 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
             self.hlsActiveTasks.removeValue(forKey: taskID)
         }
         hlsActiveTasks[taskID] = task
-        return taskID
     }
 
     public func pause(_ id: UUID) async throws {
@@ -238,6 +319,7 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
             await hlsWorker.cancelTask(id)
             hlsActiveTasks[id]?.cancel()
             hlsActiveTasks.removeValue(forKey: id)
+            etaSmoother.reset(taskID: id)
             if let existing = hlsItemsByID[id] {
                 hlsItemsByID[id] = UnifiedDownloadItem(
                     id: existing.id,
@@ -247,11 +329,13 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
                     destinationURL: existing.destinationURL,
                     state: .paused,
                     totalBytes: existing.totalBytes,
+                    isTotalBytesEstimated: existing.isTotalBytesEstimated,
                     downloadedBytes: existing.downloadedBytes,
                     speedBytesPerSecond: 0,
                     etaSeconds: nil,
+                    formattedETALabel: "",
                     mediaProgressFraction: existing.mediaProgressFraction,
-                    segments: [],
+                    segments: existing.segments,
                     errorMessage: nil,
                     createdAt: existing.createdAt
                 )
@@ -264,8 +348,16 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
     }
 
     public func resume(_ id: UUID) async throws {
-        if hlsItemsByID[id] != nil {
-            try await retry(id)
+        if let retryInput = hlsRetryInputs[id] {
+            // Keeps taskID intact so FFmpegHLSMuxerWorker resumes from downloaded HLSParts/<taskID>/ segments!
+            launchHLSTask(
+                taskID: id,
+                manifestURL: retryInput.url,
+                variantTitle: retryInput.title,
+                sessionContext: retryInput.session,
+                outputURL: retryInput.outputURL,
+                isIncognito: incognitoFlagsByTaskID[id] ?? false
+            )
             return
         }
         try await sdmManager?.resume(DownloadID(rawValue: id))
@@ -276,6 +368,8 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
             await hlsWorker.cancelTask(id)
             hlsActiveTasks[id]?.cancel()
             hlsActiveTasks.removeValue(forKey: id)
+            etaSmoother.reset(taskID: id)
+            FFmpegHLSMuxerWorker.removeStagingDirectory(for: id)
             if let existing = hlsItemsByID[id] {
                 if let dst = existing.destinationURL {
                     try? FileManager.default.removeItem(at: dst)
@@ -288,9 +382,11 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
                     destinationURL: nil,
                     state: .cancelled,
                     totalBytes: nil,
+                    isTotalBytesEstimated: false,
                     downloadedBytes: 0,
                     speedBytesPerSecond: 0,
                     etaSeconds: nil,
+                    formattedETALabel: "",
                     mediaProgressFraction: nil,
                     segments: [],
                     errorMessage: nil,
@@ -306,11 +402,13 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
 
     public func retry(_ id: UUID) async throws {
         if let retryInput = hlsRetryInputs[id] {
-            hlsItemsByID.removeValue(forKey: id)
-            _ = try await enqueueHLSStreamMux(
+            launchHLSTask(
+                taskID: id,
                 manifestURL: retryInput.url,
                 variantTitle: retryInput.title,
-                sessionContext: retryInput.session
+                sessionContext: retryInput.session,
+                outputURL: retryInput.outputURL,
+                isIncognito: incognitoFlagsByTaskID[id] ?? false
             )
             return
         }
@@ -325,12 +423,15 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
             hlsActiveTasks.removeValue(forKey: id)
             hlsItemsByID.removeValue(forKey: id)
             hlsRetryInputs.removeValue(forKey: id)
+            etaSmoother.reset(taskID: id)
+            FFmpegHLSMuxerWorker.removeStagingDirectory(for: id)
             publishMergedItems(forceImmediate: true)
             persistHLSHistory()
             return
         }
         try await sdmManager?.remove(DownloadID(rawValue: id))
         sdmSnapshotsByID.removeValue(forKey: id)
+        etaSmoother.reset(taskID: id)
         publishMergedItems(forceImmediate: true)
     }
 
@@ -358,7 +459,7 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
             let config = DownloadManagerConfiguration(
                 databaseURL: support.appendingPathComponent("downloads.sqlite3"),
                 temporaryDirectory: support.appendingPathComponent("PartialDownloads", isDirectory: true),
-                maximumActiveDownloads: 3,
+                maximumActiveDownloads: maxConcurrentDownloads,
                 maximumConnectionsPerDownload: 16,
                 updateInterval: .milliseconds(100),
                 defaultEngine: preferredHTTPBackend,
@@ -376,6 +477,7 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
             }
         } catch {
             engineStartupError = error.localizedDescription
+            PrismLogCenter.record(.error, category: .downloader, "SDMCore startup failed: \(error.localizedDescription)")
         }
     }
 
@@ -388,11 +490,42 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
             let prevState = sdmSnapshotsByID[uuid]?.state
             if prevState != snap.state && (snap.state == .completed || snap.state == .failed || snap.state == .paused || snap.state == .cancelled) {
                 hasTerminalTransition = true
+                if snap.state == .failed {
+                    PrismLogCenter.record(
+                        .error,
+                        category: .downloader,
+                        "SDMCore transfer failed (\(snap.filename)): \(snap.error?.message ?? "Unknown error")",
+                        isPrivateContext: incognitoFlagsByTaskID[uuid] ?? false
+                    )
+                }
             }
 
-            let etaSeconds: Double? = snap.estimatedTimeRemaining.map { dur in
+            let isActive: Bool = {
+                switch snap.state {
+                case .created, .probing, .queued, .downloading, .pausing, .retrying, .finalizing: return true
+                case .paused, .completed, .failed, .cancelled: return false
+                }
+            }()
+
+            let smoothed = etaSmoother.update(
+                taskID: uuid,
+                instantaneousBytesPerSecond: snap.bytesPerSecond,
+                downloadedBytes: snap.downloadedBytes,
+                totalBytes: snap.contentLength,
+                isActive: isActive
+            )
+
+            let fallbackSDMSeconds: Double? = snap.estimatedTimeRemaining.map { dur in
                 Double(dur.components.seconds) + Double(dur.components.attoseconds) / 1e18
             }
+            let effectiveETA = smoothed.etaSeconds ?? fallbackSDMSeconds
+            let etaLabel: String = {
+                guard isActive else { return "" }
+                if let effectiveETA, effectiveETA > 0, effectiveETA.isFinite {
+                    return SpeedETASmoother.formatETA(effectiveETA)
+                }
+                return smoothed.formattedETA
+            }()
 
             let unified = UnifiedDownloadItem(
                 id: uuid,
@@ -402,9 +535,11 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
                 destinationURL: snap.destinationURL,
                 state: snap.state,
                 totalBytes: snap.contentLength,
+                isTotalBytesEstimated: false,
                 downloadedBytes: snap.downloadedBytes,
-                speedBytesPerSecond: snap.bytesPerSecond,
-                etaSeconds: etaSeconds,
+                speedBytesPerSecond: isActive ? max(smoothed.smoothedBytesPerSecond, snap.bytesPerSecond) : 0,
+                etaSeconds: effectiveETA,
+                formattedETALabel: etaLabel,
                 mediaProgressFraction: nil,
                 segments: snap.segments,
                 errorMessage: snap.error?.message,
@@ -431,6 +566,27 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
 
     private func handleHLSMuxEvent(_ event: HLSMuxProgressEvent, isIncognito: Bool) {
         guard let existing = hlsItemsByID[event.taskID] else { return }
+
+        // Ignore trailing cancellation events if user paused the task
+        if existing.state == .paused && event.state == .cancelled {
+            return
+        }
+
+        let downloaded = event.downloadedBytes > 0 ? event.downloadedBytes : existing.downloadedBytes
+        let totalBytes = event.state == .completed
+            ? max(downloaded, event.estimatedTotalBytes ?? downloaded)
+            : (event.estimatedTotalBytes ?? existing.totalBytes)
+        let isEstimated = event.state == .completed ? false : event.isTotalBytesEstimated
+        let isActive = !(event.state == .completed || event.state == .failed || event.state == .cancelled || event.state == .paused)
+
+        let smoothed = etaSmoother.update(
+            taskID: event.taskID,
+            instantaneousBytesPerSecond: event.speedBytesPerSecond,
+            downloadedBytes: downloaded,
+            totalBytes: totalBytes,
+            isActive: isActive
+        )
+
         let updated = UnifiedDownloadItem(
             id: existing.id,
             backend: .ffmpegHLSMuxer,
@@ -438,19 +594,21 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
             resolvedFilename: existing.resolvedFilename,
             destinationURL: event.outputURL ?? existing.destinationURL,
             state: event.state,
-            totalBytes: event.state == .completed ? event.downloadedBytes : existing.totalBytes,
-            downloadedBytes: event.downloadedBytes > 0 ? event.downloadedBytes : existing.downloadedBytes,
-            speedBytesPerSecond: event.speedBytesPerSecond,
-            etaSeconds: nil,
+            totalBytes: totalBytes,
+            isTotalBytesEstimated: isEstimated,
+            downloadedBytes: downloaded,
+            speedBytesPerSecond: isActive ? smoothed.smoothedBytesPerSecond : 0,
+            etaSeconds: event.state == .finalizing ? 0 : smoothed.etaSeconds,
+            formattedETALabel: event.state == .finalizing ? "Remuxing MP4..." : smoothed.formattedETA,
             mediaProgressFraction: event.progressFraction ?? existing.mediaProgressFraction,
-            segments: [],
+            segments: event.segments.isEmpty ? existing.segments : event.segments,
             errorMessage: event.errorMessage,
             createdAt: existing.createdAt
         )
         hlsItemsByID[event.taskID] = updated
 
         let isTerminal = (event.state == .completed || event.state == .failed || event.state == .cancelled)
-        publishMergedItems(forceImmediate: isTerminal)
+        publishMergedItems(forceImmediate: isTerminal || event.state == .finalizing)
 
         if isTerminal {
             persistHLSHistory()
@@ -544,6 +702,7 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
                 resolvedFilename: item.resolvedFilename,
                 destinationURL: item.destinationURL,
                 state: item.isActive ? .paused : item.state,
+                totalBytes: item.totalBytes,
                 downloadedBytes: item.downloadedBytes,
                 isIncognito: incognitoFlagsByTaskID[item.id] ?? false,
                 errorMessage: item.errorMessage,
@@ -568,10 +727,12 @@ public final class ParallelDownloadStore: ParallelDownloadCoordinating {
                 resolvedFilename: rec.resolvedFilename,
                 destinationURL: rec.destinationURL,
                 state: rec.state,
-                totalBytes: rec.state == .completed ? rec.downloadedBytes : nil,
+                totalBytes: rec.state == .completed ? rec.downloadedBytes : rec.totalBytes,
+                isTotalBytesEstimated: rec.state != .completed,
                 downloadedBytes: rec.downloadedBytes,
                 speedBytesPerSecond: 0,
                 etaSeconds: nil,
+                formattedETALabel: "",
                 mediaProgressFraction: rec.state == .completed ? 1.0 : nil,
                 segments: [],
                 errorMessage: rec.errorMessage,

@@ -9,7 +9,9 @@ public protocol ParallelDownloadCoordinating: AnyObject {
     var activeCount: Int { get }
     var aggregateBytesPerSecond: UInt64 { get }
     var preferredHTTPBackend: DownloadEngineKind { get set }
+    var defaultDownloaderMode: PrismDefaultDownloaderMode { get set }
     var defaultConnectionsPerDownload: Int { get set }
+    var maxConcurrentDownloads: Int { get set }
 
     @discardableResult
     func enqueueHTTPDownload(

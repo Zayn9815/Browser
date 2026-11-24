@@ -198,6 +198,56 @@ public struct BrowserSessionHeaderAdapter: Sendable {
         return lines.joined(separator: "\r\n") + "\r\n"
     }
 
+    /// Produces a dictionary of sanitized HTTP headers (`User-Agent`, `Referer`, `Origin`, `Cookie`)
+    /// for parallel `URLSession` HLS playlist & segment workers.
+    public func makeHTTPHeadersDictionary(
+        from session: BrowserSessionContext?,
+        for targetURL: URL,
+        now: Date = .now
+    ) -> [String: String] {
+        guard let session else { return [:] }
+        var headers: [String: String] = [:]
+
+        if let ua = session.userAgent?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ua.isEmpty,
+           isSafeHeaderScalarString(ua) {
+            headers["User-Agent"] = ua
+        }
+
+        if let ref = session.pageReferer,
+           let refScheme = ref.scheme?.lowercased(),
+           ["http", "https"].contains(refScheme),
+           !(refScheme == "https" && targetURL.scheme?.lowercased() != "https"),
+           isSafeHeaderScalarString(ref.absoluteString) {
+            var comps = URLComponents(url: ref, resolvingAgainstBaseURL: false)
+            comps?.fragment = nil
+            if let cleanRef = comps?.url?.absoluteString {
+                headers["Referer"] = cleanRef
+            }
+        }
+
+        if let origin = session.origin?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !origin.isEmpty,
+           isSafeHeaderScalarString(origin),
+           (origin.lowercased().hasPrefix("http://") || origin.lowercased().hasPrefix("https://")),
+           !(origin.lowercased().hasPrefix("https://") && targetURL.scheme?.lowercased() != "https") {
+            headers["Origin"] = origin
+        }
+
+        let validCookies = filterValidCookies(session.cookies, for: targetURL, now: now)
+        if !validCookies.isEmpty {
+            let cookieHeader = validCookies
+                .sorted { $0.path.count > $1.path.count }
+                .map { "\($0.name)=\($0.value)" }
+                .joined(separator: "; ")
+            if !cookieHeader.isEmpty {
+                headers["Cookie"] = cookieHeader
+            }
+        }
+
+        return headers
+    }
+
     /// Pre-flight disk-space verification against the Vault volume before starting a transfer.
     public func verifyDiskSpace(
         using vault: any VaultManaging,
