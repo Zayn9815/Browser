@@ -88,7 +88,7 @@ public final class YTDLPExtractorService: Sendable {
                 if let ua = sessionContext?.userAgent, !ua.isEmpty {
                     args.append(contentsOf: ["--user-agent", ua])
                 }
-                if let referer = sessionContext?.pageReferer, !referer.isEmpty {
+                if let referer = sessionContext?.pageReferer?.absoluteString, !referer.isEmpty {
                     args.append(contentsOf: ["--referer", referer])
                 }
                 if let tempCookieURL {
@@ -368,11 +368,7 @@ public final class YTDLPExtractorService: Sendable {
     // MARK: - Ephemeral Netscape Cookie Export (Zero Disk Retention / Zero Logging)
 
     public static func writeEphemeralNetscapeCookies(from sessionContext: BrowserSessionContext?) -> URL? {
-        guard let rawCookie = sessionContext?.cookieHeader,
-              !rawCookie.isEmpty,
-              let refererStr = sessionContext?.pageReferer,
-              let host = URL(string: refererStr)?.host,
-              !host.isEmpty else {
+        guard let cookies = sessionContext?.cookies, !cookies.isEmpty else {
             return nil
         }
 
@@ -382,14 +378,13 @@ public final class YTDLPExtractorService: Sendable {
         let fileURL = dir.appendingPathComponent("\(UUID().uuidString).txt")
 
         var lines: [String] = ["# Netscape HTTP Cookie File"]
-        let domain = host.hasPrefix(".") ? host : ".\(host)"
-        for pair in rawCookie.split(separator: ";") {
-            let trimmed = pair.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let eq = trimmed.firstIndex(of: "=") else { continue }
-            let name = String(trimmed[..<eq]).trimmingCharacters(in: .whitespaces)
-            let value = String(trimmed[trimmed.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty else { continue }
-            lines.append("\(domain)\tTRUE\t/\tTRUE\t0\t\(name)\t\(value)")
+        for cookie in cookies where !cookie.name.isEmpty && !cookie.domain.isEmpty {
+            let includeSubdomains = cookie.isHostOnly ? "FALSE" : "TRUE"
+            let domain = (!cookie.isHostOnly && !cookie.domain.hasPrefix(".")) ? ".\(cookie.domain)" : cookie.domain
+            let path = cookie.path.isEmpty ? "/" : cookie.path
+            let secure = cookie.isSecure ? "TRUE" : "FALSE"
+            let expiry = Int(cookie.expiresAtUnix ?? 0)
+            lines.append("\(domain)\t\(includeSubdomains)\t\(path)\t\(secure)\t\(expiry)\t\(cookie.name)\t\(cookie.value)")
         }
         guard lines.count > 1 else { return nil }
         let payload = lines.joined(separator: "\n") + "\n"

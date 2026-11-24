@@ -259,10 +259,11 @@ public struct YTDLPQualityPickerSheet: View {
         defer { isSubmitting = false }
 
         let effectiveContext = BrowserSessionContext(
+            cookies: sessionContext?.cookies ?? [],
             userAgent: sessionContext?.userAgent,
-            cookieHeader: sessionContext?.cookieHeader,
-            pageReferer: sessionContext?.pageReferer ?? sourceURL.absoluteString,
+            pageReferer: sessionContext?.pageReferer ?? sourceURL,
             origin: sessionContext?.origin,
+            mimeType: sessionContext?.mimeType,
             suggestedFilename: sessionContext?.suggestedFilename,
             isIncognito: saveToPrivateVault
         )

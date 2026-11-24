@@ -152,7 +152,7 @@ public struct BrowserMenuSheet: View {
                             let ua = store.webViewPool.existingWebView(for: store.activeTabID)?.customUserAgent
                             let ctx = BrowserSessionContext(
                                 userAgent: ua,
-                                pageReferer: pageURL.absoluteString,
+                                pageReferer: pageURL,
                                 isIncognito: store.activeTab.isIncognito
                             )
                             store.onOpenYTDLPPicker?(pageURL, ctx)

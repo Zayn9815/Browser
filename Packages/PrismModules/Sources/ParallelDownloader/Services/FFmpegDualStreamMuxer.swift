@@ -56,7 +56,8 @@ public enum FFmpegDualStreamMuxer {
             _ = avformat_find_stream_info(aCtx, nil)
         }
         defer {
-            if var aTmp = audioCtx {
+            var aTmp = audioCtx
+            if aTmp != nil {
                 avformat_close_input(&aTmp)
             }
         }

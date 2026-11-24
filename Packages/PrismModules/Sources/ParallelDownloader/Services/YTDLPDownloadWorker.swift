@@ -217,14 +217,11 @@ public actor YTDLPDownloadWorker {
         defer { try? fm.removeItem(at: stageDir) }
 
         var headers = format.httpHeaders
-        if let ua = sessionContext?.userAgent, !ua.isEmpty, headers["User-Agent"] == nil {
-            headers["User-Agent"] = ua
-        }
-        if let ref = sessionContext?.pageReferer, !ref.isEmpty, headers["Referer"] == nil {
-            headers["Referer"] = ref
-        }
-        if let cookie = sessionContext?.cookieHeader, !cookie.isEmpty, headers["Cookie"] == nil {
-            headers["Cookie"] = cookie
+        if let sessionContext {
+            let targetURL = format.videoURL ?? format.audioURL ?? mediaInfo.sourceURL
+            for (k, v) in sessionContext.httpHeaderDictionary(for: targetURL) where headers[k] == nil {
+                headers[k] = v
+            }
         }
 
         let config = URLSessionConfiguration.ephemeral
@@ -512,7 +509,7 @@ public actor YTDLPDownloadWorker {
         if let ua = sessionContext?.userAgent, !ua.isEmpty {
             args.append(contentsOf: ["--user-agent", ua])
         }
-        if let ref = sessionContext?.pageReferer, !ref.isEmpty {
+        if let ref = sessionContext?.pageReferer?.absoluteString, !ref.isEmpty {
             args.append(contentsOf: ["--referer", ref])
         }
         if let tempCookieURL {
@@ -664,10 +661,10 @@ private final class ChunkProgressBox: @unchecked Sendable {
             let len = r.2 - r.1 + 1
             let done = min(len, downloadedByChunk[i])
             return DownloadSegmentSnapshot(
-                index: i,
+                ordinal: i,
                 start: r.1,
                 end: r.2,
-                downloadedBytes: done
+                next: r.1 + done
             )
         }
 
